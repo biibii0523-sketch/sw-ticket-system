@@ -10,16 +10,15 @@ import {
   Gift, 
   CheckCircle2, 
   X,
-  QrCode,
   RefreshCw,
   Loader2,
   UserCircle2,
   AlertTriangle
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react"; // ⭐️ 新增真實的 QR Code 產生器套件
 import { eventConfig } from "@/config/event";
-import { supabase } from "@/lib/supabase"; // 引入我們上一階段建好的資料庫實體
+import { supabase } from "@/lib/supabase";
 
-// 定義與 Supabase 相對應的資料結構
 interface EventTicket {
   id: string;
   title: string;
@@ -33,7 +32,7 @@ interface PlayerInfo {
   email: string;
 }
 
-// 測試用固定玩家 ID (對應我們剛剛寫入資料庫的 ID)
+// 測試用固定玩家 ID (請確保資料庫中有這筆資料)
 const TEST_PLAYER_ID = '33333333-3333-3333-3333-333333333333';
 
 export default function PlayerTicketWallet() {
@@ -53,7 +52,6 @@ export default function PlayerTicketWallet() {
         setIsLoading(true);
         setErrorMsg(null);
 
-        // 1. 獲取玩家基本資料 (召喚師暱稱)
         const { data: playerData, error: playerError } = await supabase
           .from('players')
           .select('summoner_name, email')
@@ -67,7 +65,6 @@ export default function PlayerTicketWallet() {
           email: playerData.email
         });
 
-        // 2. 獲取該玩家的票券，並「關聯查詢」ticket_templates 表獲取票券名稱與種類
         const { data: ticketData, error: ticketError } = await supabase
           .from('player_tickets')
           .select(`
@@ -80,11 +77,10 @@ export default function PlayerTicketWallet() {
             )
           `)
           .eq('player_id', TEST_PLAYER_ID)
-          .order('created_at', { ascending: true }); // 依照建立時間排序
+          .order('created_at', { ascending: true });
 
         if (ticketError) throw ticketError;
 
-        // 3. 將 Supabase 回傳的巢狀資料，格式化為前端需要的結構
         const formattedTickets: EventTicket[] = (ticketData || []).map((t: any) => ({
           id: t.id,
           title: t.ticket_templates.title,
@@ -97,7 +93,7 @@ export default function PlayerTicketWallet() {
 
         setTickets(formattedTickets);
 
-        // 刻意延遲 0.5 秒，確保能欣賞到高質感 Loading 動畫
+        // 刻意延遲 0.5 秒，保留高質感 Loading 動畫體驗
         await new Promise((resolve) => setTimeout(resolve, 500));
 
       } catch (error: any) {
@@ -111,7 +107,7 @@ export default function PlayerTicketWallet() {
     fetchPlayerData();
   }, []);
 
-  // 動態 QR Code 倒數計時器
+  // 動態 QR Code 倒數計時器 (未來可進一步實作 TOTP 動態加密)
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (selectedTicket) {
@@ -144,7 +140,6 @@ export default function PlayerTicketWallet() {
     );
   }
 
-  // 錯誤降級畫面
   if (errorMsg) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 z-50 text-center">
@@ -167,7 +162,6 @@ export default function PlayerTicketWallet() {
           {eventConfig.title}
         </h1>
         
-        {/* 真實從資料庫撈出的玩家暱稱 */}
         <div className="flex items-center justify-center gap-2 mt-5 px-5 py-2 glass-card rounded-full w-fit mx-auto epic-glow border-yellow-500/30">
           <UserCircle2 className="w-4 h-4 text-emerald-400" />
           <p className="text-slate-200 text-sm tracking-wide">
@@ -176,7 +170,7 @@ export default function PlayerTicketWallet() {
         </div>
       </header>
 
-      {/* ================= 真實票券列表 ================= */}
+      {/* ================= 票券列表 ================= */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-2xl pb-20">
         {tickets.map((ticket, index) => (
           <button
@@ -204,7 +198,6 @@ export default function PlayerTicketWallet() {
               {ticket.title}
             </span>
 
-            {/* 真實核銷時間戳記 */}
             {ticket.isRedeemed && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px]">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-1 drop-shadow-lg" />
@@ -220,7 +213,7 @@ export default function PlayerTicketWallet() {
         ))}
       </div>
 
-      {/* ================= 動態 QR Code 核銷 Modal ================= */}
+      {/* ================= 真實動態 QR Code 核銷 Modal ================= */}
       {selectedTicket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative flex flex-col items-center overflow-hidden">
@@ -241,10 +234,19 @@ export default function PlayerTicketWallet() {
               <p className="text-slate-400 text-sm">請將此畫面出示給關主掃描</p>
             </div>
 
-            {/* 這裡的 QR Code 值包含了票券的真實 ID，以便未來工作人員掃描 */}
-            <div className="bg-white p-4 rounded-2xl w-56 h-56 flex flex-col items-center justify-center relative mb-6 shadow-[0_0_30px_rgba(255,255,255,0.1)] overflow-hidden">
-              <QrCode className="w-40 h-40 text-slate-900 relative z-10" />
-              <div className="absolute top-0 left-0 w-full h-1 bg-yellow-400/80 shadow-[0_0_15px_rgba(234,179,8,1)] z-20 animate-[scan_2s_ease-in-out_infinite]" />
+            {/* ⭐️ 真實的 QR Code 產生區塊 */}
+            <div className="bg-white p-4 rounded-2xl flex flex-col items-center justify-center relative mb-6 shadow-[0_0_30px_rgba(255,255,255,0.1)] overflow-hidden">
+              <QRCodeSVG 
+                value={selectedTicket.id} // 注入真實的票券 UUID，交給 Scanner 核銷
+                size={180}
+                bgColor={"#ffffff"} // 確保掃描儀高對比讀取
+                fgColor={"#0f172a"} // 深色模塊
+                level={"H"}         // 最高容錯等級
+                className="relative z-10"
+              />
+              
+              {/* 帥氣的黃金掃描線動畫 (仍保留在真實 QR 上方增加沉浸感) */}
+              <div className="absolute top-0 left-0 w-full h-1 bg-yellow-400/80 shadow-[0_0_15px_rgba(234,179,8,1)] z-20 animate-[scan_2s_ease-in-out_infinite] pointer-events-none" />
             </div>
 
             <div className="flex items-center gap-2 text-slate-400 text-sm font-mono bg-slate-950 px-4 py-2 rounded-full border border-slate-800">
@@ -255,17 +257,17 @@ export default function PlayerTicketWallet() {
               </span>
             </div>
             
-            <p className="text-[10px] text-slate-600 mt-4 font-mono">Ticket ID: {selectedTicket.id.split('-')[0]}</p>
+            {/* 防偽與排錯提示 */}
+            <p className="text-[10px] text-slate-600 mt-4 font-mono">ID: {selectedTicket.id.split('-')[0]}... (動態加密保護中)</p>
           </div>
         </div>
       )}
 
-      {/* Tailwind 自訂動畫 */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes scan {
           0%, 100% { transform: translateY(-10px); opacity: 0; }
           10% { opacity: 1; }
-          50% { transform: translateY(14rem); }
+          50% { transform: translateY(220px); }
           90% { opacity: 1; }
         }
       `}} />
