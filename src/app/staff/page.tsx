@@ -1,7 +1,7 @@
 // 檔案路徑: src/app/staff/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { 
   ScanLine, 
@@ -16,7 +16,6 @@ import {
 import { supabase } from "@/lib/supabase";
 import { eventConfig } from "@/config/event";
 
-// 掃描結果的狀態型別
 type ScanStatus = "idle" | "processing" | "success" | "error";
 
 interface ScanResultData {
@@ -26,19 +25,16 @@ interface ScanResultData {
 }
 
 export default function StaffScannerPage() {
-  // 系統與認證狀態
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [pinCode, setPinCode] = useState("");
   const [loginError, setLoginError] = useState(false);
 
-  // 掃描與核銷狀態
   const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
   const [resultData, setResultData] = useState<ScanResultData | null>(null);
 
-  // 處理工作人員登入 (模擬簡單 PIN 碼防護)
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinCode === "8888") { // 實戰中可對應 Supabase staff table
+    if (pinCode === "8888") {
       setIsLoggedIn(true);
       setLoginError(false);
     } else {
@@ -47,23 +43,30 @@ export default function StaffScannerPage() {
     }
   };
 
-  // 處理 QR Code 掃描結果
-  const handleScan = async (scannedValue: string) => {
-    // 如果正在處理中，忽略其他連續的掃描輸入 (防連點/防連掃)
+  // 強化版的掃描處理核心 (相容新版套件的物件陣列格式)
+  const handleScan = async (scannedData: any) => {
     if (scanStatus !== "idle") return;
-
     setScanStatus("processing");
 
     try {
-      // 1. 驗證掃描到的內容是否為有效的 UUID 格式 (防止亂掃其他 QR Code)
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(scannedValue)) {
-        throw new Error("無效的票券條碼格式");
+      let ticketId = "";
+
+      // 判斷回傳的格式：新版套件會回傳 Array，舊版回傳 String
+      if (typeof scannedData === "string") {
+        ticketId = scannedData;
+      } else if (Array.isArray(scannedData) && scannedData.length > 0) {
+        ticketId = scannedData[0].rawValue;
+      } else {
+        throw new Error("無法解析條碼內容");
       }
 
-      const ticketId = scannedValue;
+      // 檢查是否為有效的 UUID 格式
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(ticketId)) {
+        throw new Error(`無效的票券格式: ${ticketId.substring(0, 10)}...`);
+      }
 
-      // 2. 向 Supabase 發起核銷請求，使用樂觀鎖 (.eq('is_redeemed', false)) 避免重複扣款
+      // 向 Supabase 發起核銷請求
       const { data, error } = await supabase
         .from('player_tickets')
         .update({ 
@@ -77,23 +80,26 @@ export default function StaffScannerPage() {
           ticket_templates (title),
           players (summoner_name)
         `)
-        .single(); // 只預期回傳一筆
+        .single();
 
-      if (error || !data) {
-        // 如果找不到資料，代表已經被核銷過，或是偽造的票券
-        throw new Error("此票券已兌換過，或不存在於系統中！");
+      if (error) {
+        throw new Error("資料庫拒絕存取或更新失敗 (請確認 RLS 權限已開啟)");
       }
 
-      // 3. 核銷成功，設定畫面顯示資訊
+      if (!data) {
+        throw new Error("此票券已兌換過，或非有效票券！");
+      }
+
+      // 核銷成功
       setResultData({
         summonerName: data.players?.summoner_name,
         ticketTitle: data.ticket_templates?.title,
-        message: "核銷成功！請發放贈品/放行。"
+        message: "核銷成功！請發放贈品或放行。"
       });
       setScanStatus("success");
 
     } catch (err: any) {
-      console.error("核銷錯誤:", err);
+      console.error("核銷錯誤詳細資訊:", err);
       setResultData({
         message: err.message || "系統發生錯誤，請稍後再試。"
       });
@@ -101,15 +107,12 @@ export default function StaffScannerPage() {
     }
   };
 
-  // 重置掃描器，準備掃下一個
   const resetScanner = () => {
     setScanStatus("idle");
     setResultData(null);
   };
 
-  // ==========================================
-  // UI 視圖 1：登入鎖屏介面 (Mobile-First)
-  // ==========================================
+  // ================= UI 1: 登入鎖屏 =================
   if (!isLoggedIn) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 relative overflow-hidden bg-slate-950">
@@ -151,13 +154,9 @@ export default function StaffScannerPage() {
     );
   }
 
-  // ==========================================
-  // UI 視圖 2：主掃描介面 (Mobile-First HUD 風格)
-  // ==========================================
+  // ================= UI 2: 掃描介面 =================
   return (
     <div className="flex flex-col h-[100dvh] bg-black relative overflow-hidden">
-      
-      {/* 頂部控制列 */}
       <header className="absolute top-0 left-0 w-full p-4 z-20 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent pt-safe">
         <div className="flex flex-col">
           <span className="text-yellow-500 text-xs font-black tracking-widest uppercase">
@@ -173,31 +172,28 @@ export default function StaffScannerPage() {
         </button>
       </header>
 
-      {/* 相機視窗區塊 */}
       <main className="flex-1 relative w-full h-full flex items-center justify-center bg-slate-900">
         
         {scanStatus === "idle" && (
           <div className="absolute inset-0 z-10">
+            {/* ⭐️ 使用 onScan 屬性來相容最新版套件 */}
             <Scanner
-              onResult={(text) => handleScan(text)}
+              onScan={(result) => handleScan(result)}
               onError={(error) => console.error(error?.message)}
-              options={{
-                delayBetweenScanAttempts: 500, // 降低掃描頻率省電
-              }}
+              options={{ delayBetweenScanAttempts: 800 }}
               styles={{
                 container: { width: '100%', height: '100%' },
                 video: { objectFit: 'cover' }
               }}
             />
-            {/* 掃描儀 HUD 準星設計 */}
+            
             <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-              <div className="w-64 h-64 border-2 border-yellow-500/50 rounded-3xl relative">
+              <div className="w-64 h-64 border-2 border-yellow-500/50 rounded-3xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-yellow-400 rounded-tl-3xl"></div>
                 <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-yellow-400 rounded-tr-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-yellow-400 rounded-bl-3xl"></div>
                 <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-yellow-400 rounded-br-3xl"></div>
-                {/* 掃描線動畫 */}
-                <div className="w-full h-0.5 bg-yellow-400 shadow-[0_0_15px_rgba(234,179,8,1)] absolute animate-[scan_2s_ease-in-out_infinite]" />
+                <div className="w-full h-1 bg-yellow-400 shadow-[0_0_20px_rgba(234,179,8,1)] absolute animate-[scan_2s_ease-in-out_infinite]" />
               </div>
               <p className="mt-8 bg-black/60 px-4 py-2 rounded-full text-yellow-400 text-sm font-mono tracking-widest backdrop-blur-md border border-yellow-500/30 flex items-center gap-2">
                 <ScanLine className="w-4 h-4 animate-pulse" /> 請將玩家 QR Code 放入框內
@@ -206,7 +202,6 @@ export default function StaffScannerPage() {
           </div>
         )}
 
-        {/* 處理中遮罩 */}
         {scanStatus === "processing" && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md">
             <Loader2 className="w-16 h-16 text-yellow-500 animate-spin mb-4" />
@@ -214,14 +209,12 @@ export default function StaffScannerPage() {
           </div>
         )}
 
-        {/* 成功 / 失敗 結果提示 Modal */}
         {(scanStatus === "success" || scanStatus === "error") && (
           <div className="absolute inset-0 z-40 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
             <div className={`w-full max-w-sm rounded-3xl p-6 flex flex-col items-center border shadow-2xl relative overflow-hidden
-              ${scanStatus === "success" ? 'bg-emerald-950/80 border-emerald-500/50' : 'bg-rose-950/80 border-rose-500/50'}
+              ${scanStatus === "success" ? 'bg-emerald-950/90 border-emerald-500/50' : 'bg-rose-950/90 border-rose-500/50'}
             `}>
               
-              {/* 背景光暈 */}
               <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 blur-[60px] pointer-events-none
                 ${scanStatus === "success" ? 'bg-emerald-500/20' : 'bg-rose-500/20'}
               `} />
@@ -240,7 +233,6 @@ export default function StaffScannerPage() {
                 {resultData?.message}
               </p>
 
-              {/* 成功時顯示玩家與票券詳細資訊 (防呆再確認) */}
               {scanStatus === "success" && (
                 <div className="w-full bg-black/40 rounded-2xl p-4 mb-6 z-10 border border-white/5 space-y-3">
                   <div className="flex items-center gap-3">
@@ -274,7 +266,6 @@ export default function StaffScannerPage() {
             </div>
           </div>
         )}
-
       </main>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -284,7 +275,6 @@ export default function StaffScannerPage() {
           50% { top: 100%; }
           90% { opacity: 1; }
         }
-        /* PWA 與手機瀏覽器安全區域適配 */
         .pt-safe { padding-top: env(safe-area-inset-top, 1rem); }
       `}} />
     </div>
