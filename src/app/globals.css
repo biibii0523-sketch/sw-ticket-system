@@ -1,26 +1,38 @@
+/* 檔案路徑: src/app/globals.css */
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --foreground-rgb: 241, 245, 249; /* text-slate-100 */
+  --background-start-rgb: 2, 6, 23;  /* bg-slate-950 */
+  --background-end-rgb: 15, 23, 42;  /* bg-slate-900 */
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: rgb(var(--foreground-rgb));
+  background-color: rgb(var(--background-start-rgb));
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  /* 隱藏預設卷軸，讓畫面更像原生 App */
+  scrollbar-width: none; 
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+/* 
+  針對 Tailwind v4 架構優化：
+  不依賴 @apply，改用純 CSS 實現遊戲業高質感的毛玻璃與發光特效，
+  確保跨版本與編譯器的絕對穩定性。
+*/
+
+.glass-card {
+  background-color: rgba(15, 23, 42, 0.4); /* 對應 bg-slate-900/40 */
+  backdrop-filter: blur(12px); /* 對應 backdrop-blur-md */
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1); /* 對應 border-white/10 */
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.epic-glow {
+  filter: drop-shadow(0 0 15px rgba(234, 179, 8, 0.5));
 }
