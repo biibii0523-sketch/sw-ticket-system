@@ -5,13 +5,13 @@ import React, { useState, useEffect } from "react";
 import { 
   ShieldAlert, BarChart3, RefreshCcw, LogOut, Activity, 
   PlusCircle, Image as ImageIcon, Trash2, Save, Calendar, Ticket, CheckCircle2, Loader2,
-  ArrowUp, ArrowDown, UserPlus, Copy, X, Users, FileText, Send
+  ArrowUp, ArrowDown, UserPlus, Copy, X, Users, FileText, Send, Pencil // ⭐️ 引入 Pencil 修改圖示
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface TicketStat {
   id: string; title: string; type: string;
-  totalCapacity: number; issuedCount: number; redeemedCount: number; sortOrder: number;
+  issuedCount: number; redeemedCount: number; sortOrder: number;
 }
 
 interface EventData {
@@ -20,7 +20,7 @@ interface EventData {
 }
 
 interface NewTicket {
-  title: string; type: "admission" | "food" | "game" | "gift" | "photo"; quantity: number;
+  title: string; type: "admission" | "food" | "game" | "gift" | "photo";
 }
 
 export default function AdminDashboardPage() {
@@ -38,25 +38,29 @@ export default function AdminDashboardPage() {
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
   const [visualFile, setVisualFile] = useState<File | null>(null);
+  
+  // ⭐️ 移除 quantity 屬性
   const [newTickets, setNewTickets] = useState<NewTicket[]>([
-    { title: "派對入場卷", type: "admission", quantity: 500 }
+    { title: "派對入場卷", type: "admission" }
   ]);
+
+  // ================= 修改活動 Modal 狀態 =================
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editEventId, setEditEventId] = useState("");
+  const [editEventName, setEditEventName] = useState("");
+  const [editEventDate, setEditEventDate] = useState("");
+  const [editVisualFile, setEditVisualFile] = useState<File | null>(null);
+  const [editImageUrl, setEditImageUrl] = useState("");
 
   // ================= 派發票券 Modal 狀態 =================
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [issueEventId, setIssueEventId] = useState<string | null>(null);
   const [issueEventName, setIssueEventName] = useState("");
-  
-  // 模式切換：單筆 (single) 或 批次 (batch)
   const [issueMode, setIssueMode] = useState<'single' | 'batch'>('single');
-
-  // 單筆狀態
   const [issueSummonerName, setIssueSummonerName] = useState("");
   const [issueEmail, setIssueEmail] = useState("");
   const [singleGeneratedLink, setSingleGeneratedLink] = useState<string | null>(null);
   const [singleStatusMsg, setSingleStatusMsg] = useState<{ type: 'success'|'warning'|'error', text: string } | null>(null);
-
-  // 批次狀態
   const [batchInput, setBatchInput] = useState("");
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
@@ -74,7 +78,7 @@ export default function AdminDashboardPage() {
       setIsLoading(true);
       const { data, error } = await supabase
         .from('events')
-        .select(`id, name, event_date, image_url, ticket_templates ( id, title, ticket_type, total_quantity, sort_order, player_tickets ( id, is_redeemed ) )`)
+        .select(`id, name, event_date, image_url, ticket_templates ( id, title, ticket_type, sort_order, player_tickets ( id, is_redeemed ) )`)
         .order('event_date', { ascending: false });
 
       if (error) throw error;
@@ -85,7 +89,7 @@ export default function AdminDashboardPage() {
           const redeemed = template?.player_tickets ? template.player_tickets.filter((t: any) => t.is_redeemed).length : 0;
           return {
             id: template.id, title: template.title, type: template.ticket_type,
-            totalCapacity: template.total_quantity, issuedCount: issued, redeemedCount: redeemed,
+            issuedCount: issued, redeemedCount: redeemed,
             sortOrder: template.sort_order || 0
           };
         });
@@ -99,6 +103,51 @@ export default function AdminDashboardPage() {
   };
 
   useEffect(() => { if (isAdminAuth && activeTab === "dashboard") fetchDashboardData(); }, [isAdminAuth, activeTab]);
+
+  // ================= 修改活動邏輯 =================
+  const openEditModal = (event: EventData) => {
+    setEditEventId(event.id);
+    setEditEventName(event.name);
+    setEditEventDate(event.event_date);
+    setEditImageUrl(event.image_url);
+    setEditVisualFile(null);
+    setEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editEventName || !editEventDate) return alert("請填寫活動名稱與日期！");
+
+    try {
+      setIsSubmitting(true);
+      let finalImageUrl = editImageUrl;
+
+      // 如果有選擇新圖片，先上傳新圖片
+      if (editVisualFile) {
+        const fileExt = editVisualFile.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('event-visuals').upload(fileName, editVisualFile);
+        if (uploadError) throw new Error("新圖片上傳失敗：" + uploadError.message);
+        const { data: publicUrlData } = supabase.storage.from('event-visuals').getPublicUrl(fileName);
+        finalImageUrl = publicUrlData.publicUrl;
+      }
+
+      const { error: updateError } = await supabase
+        .from('events')
+        .update({ name: editEventName, event_date: editEventDate, image_url: finalImageUrl })
+        .eq('id', editEventId);
+
+      if (updateError) throw new Error(`更新活動失敗: ${updateError.message}`);
+
+      alert("🎉 活動更新成功！");
+      setEditModalOpen(false);
+      fetchDashboardData();
+    } catch (err: any) {
+      alert(err.message || "發生未知錯誤");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // ================= 輔助功能 =================
   const handleDeleteEvent = async (eventId: string, eventName: string) => {
@@ -127,9 +176,9 @@ export default function AdminDashboardPage() {
     } catch (err) { alert("排序更新失敗"); setIsLoading(false); }
   };
 
-  const handleAddTicket = () => setNewTickets([...newTickets, { title: "", type: "game", quantity: 50 }]);
+  const handleAddTicket = () => setNewTickets([...newTickets, { title: "", type: "game" }]);
   const handleRemoveTicket = (index: number) => { if (newTickets.length > 1) setNewTickets(newTickets.filter((_, i) => i !== index)); };
-  const handleTicketChange = (index: number, field: keyof NewTicket, value: string | number) => {
+  const handleTicketChange = (index: number, field: keyof NewTicket, value: string) => {
     const updated = [...newTickets]; updated[index] = { ...updated[index], [field]: value }; setNewTickets(updated);
   };
 
@@ -137,7 +186,7 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     if (!newEventName || !newEventDate) return alert("請填寫活動名稱與日期！");
     if (!visualFile) return alert("請上傳活動主視覺！");
-    for (const t of newTickets) if (!t.title || t.quantity <= 0) return alert("請確認票券名稱與數量！");
+    for (const t of newTickets) if (!t.title) return alert("請確認票券名稱已填寫！");
 
     try {
       setIsSubmitting(true);
@@ -151,42 +200,36 @@ export default function AdminDashboardPage() {
         .from('events').insert([{ name: newEventName, event_date: newEventDate, image_url: publicUrlData.publicUrl, is_active: true }]).select('id').single();
       if (eventError || !eventData) throw new Error(`建立活動寫入失敗: ${eventError?.message}`);
 
+      // ⭐️ 建立時，直接預設 total_quantity = 0 (因為目前依賴實際派發)
       const templatesToInsert = newTickets.map((t, index) => ({ 
-        event_id: eventData.id, title: t.title, ticket_type: t.type, total_quantity: t.quantity, sort_order: index 
+        event_id: eventData.id, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index 
       }));
       const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert);
       if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
 
       alert("🎉 活動創建成功！請到「戰情室」點擊【派發】按鈕發送票券。");
       setNewEventName(""); setNewEventDate(""); setVisualFile(null);
-      setNewTickets([{ title: "派對入場卷", type: "admission", quantity: 500 }]);
+      setNewTickets([{ title: "派對入場卷", type: "admission" }]);
       setActiveTab("dashboard");
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
   };
 
   // ================= 派發票券功能區塊 =================
   const openIssueModal = (eventId: string, eventName: string) => {
-    setIssueEventId(eventId); setIssueEventName(eventName);
-    setIssueMode('single');
+    setIssueEventId(eventId); setIssueEventName(eventName); setIssueMode('single');
     setIssueSummonerName(""); setIssueEmail("");
     setSingleGeneratedLink(null); setSingleStatusMsg(null);
     setBatchInput(""); setBatchResults([]); setBatchProgress({ current: 0, total: 0 });
     setIssueModalOpen(true);
   };
 
-  // 單筆派發
   const handleSingleIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!issueEmail.includes('@') || !issueSummonerName.trim()) return alert('請確認信箱格式正確且已填寫暱稱！');
     setIsLoading(true);
-    
     try {
-      const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', {
-        p_event_id: issueEventId, p_summoner_name: issueSummonerName.trim(), p_email: issueEmail.trim()
-      });
-
+      const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { p_event_id: issueEventId, p_summoner_name: issueSummonerName.trim(), p_email: issueEmail.trim() });
       if (error) throw error;
-
       if (magicToken) {
         const link = `${window.location.origin}/claim?token=${magicToken}`;
         setSingleGeneratedLink(link);
@@ -196,65 +239,34 @@ export default function AdminDashboardPage() {
         setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！' });
       }
       fetchDashboardData();
-    } catch (err: any) {
-      setSingleStatusMsg({ type: 'error', text: `派發失敗：${err.message}` });
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (err: any) { setSingleStatusMsg({ type: 'error', text: `派發失敗：${err.message}` }); } finally { setIsLoading(false); }
   };
 
-  // 批次派發 (序列處理，防 API 超載)
   const handleBatchIssue = async () => {
     if (!batchInput.trim()) return alert("請貼上匯入資料！");
-
-    // 解析文字 (支援逗號或 Tab 分隔，方便從 Excel 貼上)
     const lines = batchInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     const parsedList = lines.map(line => {
       const parts = line.split(/[,\t]+/).map(p => p.trim());
       return { email: parts[0] || "", name: parts[1] || "" };
     });
-
-    // 格式防呆檢查
     const invalidItem = parsedList.find(p => !p.email.includes('@') || !p.name);
-    if (invalidItem) {
-      return alert(`資料格式錯誤！請檢查此行：\n${invalidItem.email || "(空信箱)"} , ${invalidItem.name || "(空暱稱)"}\n\n正確格式：信箱, 暱稱`);
-    }
+    if (invalidItem) return alert(`資料格式錯誤！請檢查此行：\n${invalidItem.email || "(空信箱)"} , ${invalidItem.name || "(空暱稱)"}\n\n正確格式：信箱, 暱稱`);
 
-    setIsBatchProcessing(true);
-    setBatchResults([]);
-    const resultsReport = ["信箱\t暱稱\t魔法連結或狀態"]; // 報表標題
-    
+    setIsBatchProcessing(true); setBatchResults([]);
+    const resultsReport = ["信箱\t暱稱\t魔法連結或狀態"]; 
     for (let i = 0; i < parsedList.length; i++) {
-      const p = parsedList[i];
-      setBatchProgress({ current: i + 1, total: parsedList.length });
-      
+      const p = parsedList[i]; setBatchProgress({ current: i + 1, total: parsedList.length });
       try {
-        const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', {
-          p_event_id: issueEventId, p_summoner_name: p.name, p_email: p.email
-        });
-
+        const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { p_event_id: issueEventId, p_summoner_name: p.name, p_email: p.email });
         if (error) throw error;
-
-        if (magicToken) {
-          const link = `${window.location.origin}/claim?token=${magicToken}`;
-          resultsReport.push(`${p.email}\t${p.name}\t${link}`);
-        } else {
-          resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動派發成功`);
-        }
-      } catch (err: any) {
-        resultsReport.push(`${p.email}\t${p.name}\t[失敗] ${err.message}`);
-      }
+        if (magicToken) resultsReport.push(`${p.email}\t${p.name}\t${window.location.origin}/claim?token=${magicToken}`);
+        else resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動派發成功`);
+      } catch (err: any) { resultsReport.push(`${p.email}\t${p.name}\t[失敗] ${err.message}`); }
     }
-
-    setBatchResults(resultsReport);
-    setIsBatchProcessing(false);
-    fetchDashboardData(); // 更新儀表板數字
+    setBatchResults(resultsReport); setIsBatchProcessing(false); fetchDashboardData(); 
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    alert("已複製到剪貼簿！");
-  };
+  const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); alert("已複製到剪貼簿！"); };
 
   // ================= UI 渲染區塊 =================
   if (!isAdminAuth) {
@@ -274,7 +286,6 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-rose-500/30 pb-20">
-      {/* 頂部導航 */}
       <nav className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 md:px-8 py-4 flex justify-between items-center">
         <div className="flex items-center gap-2"><ShieldAlert className="w-6 h-6 text-rose-500" /><h1 className="text-xl font-black text-white">ADMIN HUD</h1></div>
         <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 hidden md:flex">
@@ -284,7 +295,6 @@ export default function AdminDashboardPage() {
         <button onClick={() => setIsAdminAuth(false)} className="flex items-center gap-2 text-rose-400 font-bold"><LogOut className="w-4 h-4" /> 登出</button>
       </nav>
 
-      {/* 手機版導航 */}
       <div className="md:hidden flex justify-center gap-2 mt-4 px-4">
           <button onClick={() => setActiveTab("dashboard")} className={`flex-1 py-3 rounded-lg font-bold text-sm ${activeTab === "dashboard" ? 'bg-rose-600 text-white' : 'bg-slate-900 text-slate-400'}`}>戰情室</button>
           <button onClick={() => setActiveTab("create")} className={`flex-1 py-3 rounded-lg font-bold text-sm ${activeTab === "create" ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-slate-400'}`}>新活動</button>
@@ -308,8 +318,11 @@ export default function AdminDashboardPage() {
             {eventsData.map((ev) => (
               <div key={ev.id} className="glass-card rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative">
                 
-                {/* 派發與刪除按鈕 */}
+                {/* 動作按鈕群組：修改、派發、刪除 */}
                 <div className="absolute top-4 right-4 z-30 flex gap-2">
+                  <button onClick={() => openEditModal(ev)} className="p-2 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-xl shadow-lg border border-emerald-400/50 flex gap-2 transition-all active:scale-95">
+                    <Pencil className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">修改活動</span>
+                  </button>
                   <button onClick={() => openIssueModal(ev.id, ev.name)} className="p-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-xl shadow-lg border border-indigo-400/50 flex gap-2 transition-all active:scale-95">
                     <UserPlus className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">發送票券 / 產生連結</span>
                   </button>
@@ -326,7 +339,7 @@ export default function AdminDashboardPage() {
                 )}
                 
                 <div className={`p-6 ${ev.image_url ? '-mt-16 relative z-20' : ''}`}>
-                  <h3 className="text-3xl font-extrabold text-white mb-2 drop-shadow-lg pr-48">{ev.name}</h3>
+                  <h3 className="text-3xl font-extrabold text-white mb-2 drop-shadow-lg pr-[300px]">{ev.name}</h3>
                   <p className="text-emerald-400 font-mono text-sm mb-6 flex items-center gap-2"><Calendar className="w-4 h-4" /> {ev.event_date}</p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -341,7 +354,7 @@ export default function AdminDashboardPage() {
                           <div className="flex justify-between items-start mb-2 pr-8"><span className="text-white font-bold">{stat.title}</span></div>
                           <div className="flex justify-between items-center mb-2">
                              <span className="text-[10px] text-slate-400 bg-slate-900 px-2 rounded border border-slate-700">{stat.type}</span>
-                             <div className="flex items-end gap-2"><span className="text-3xl font-black text-white">{stat.redeemedCount}</span><span className="text-slate-500 text-sm mb-1">/ {stat.issuedCount}</span></div>
+                             <div className="flex items-end gap-2"><span className="text-3xl font-black text-white">{stat.redeemedCount}</span><span className="text-slate-500 text-sm mb-1">/ {stat.issuedCount} 已發出</span></div>
                           </div>
                           <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden">
                             <div className={`h-full bg-gradient-to-r ${redeemRate > 80 ? 'from-orange-500 to-rose-500' : 'from-indigo-500 to-blue-400'} transition-all`} style={{ width: `${redeemRate}%` }} />
@@ -366,7 +379,7 @@ export default function AdminDashboardPage() {
                  <div><label className="block text-sm font-bold text-slate-400 mb-2">活動日期</label><input type="date" required value={newEventDate} onChange={e => setNewEventDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none [color-scheme:dark]" /></div>
                </div>
                <div>
-                 <label className="block text-sm font-bold text-slate-400 mb-2">主視覺上傳 (比例 21:9，如 1024x440)</label>
+                 <label className="block text-sm font-bold text-slate-400 mb-2">主視覺上傳 (比例 21:9，如 1600x400)</label>
                  <div className="border-2 border-dashed border-slate-700 bg-slate-950/50 rounded-2xl p-8 flex flex-col items-center justify-center relative cursor-pointer" onClick={() => document.getElementById('visual-upload')?.click()}>
                    <input id="visual-upload" type="file" accept="image/*" className="hidden" onChange={(e) => setVisualFile(e.target.files?.[0] || null)} />
                    {visualFile ? <div className="text-emerald-400 font-bold flex gap-2"><CheckCircle2/> {visualFile.name}</div> : <><ImageIcon className="w-12 h-12 text-slate-500 mb-3" /><p className="text-slate-300 font-bold">點擊上傳圖片</p></>}
@@ -376,15 +389,15 @@ export default function AdminDashboardPage() {
 
              <div className="glass-card p-6 md:p-8 rounded-3xl border border-slate-800">
                <div className="flex justify-between items-center mb-6">
-                 <h2 className="text-xl font-bold text-white flex gap-2"><Ticket className="w-6 h-6 text-yellow-500" /> 2. 票券設定</h2>
+                 <h2 className="text-xl font-bold text-white flex gap-2"><Ticket className="w-6 h-6 text-yellow-500" /> 2. 票券設定 (依實際派發產生數量)</h2>
                  <button type="button" onClick={handleAddTicket} className="text-sm font-bold text-yellow-400 flex gap-1 border border-yellow-500/30 px-3 py-1.5 rounded-lg bg-yellow-500/10"><PlusCircle className="w-4 h-4" /> 新增種類</button>
                </div>
                <div className="space-y-4">
                  {newTickets.map((ticket, index) => (
                    <div key={index} className="flex flex-col md:flex-row gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
-                     <div className="w-full md:w-5/12"><label className="block text-xs text-slate-500 mb-1">票券名稱</label><input type="text" required value={ticket.title} onChange={e => handleTicketChange(index, 'title', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none" /></div>
-                     <div className="w-full md:w-3/12"><label className="block text-xs text-slate-500 mb-1">種類</label><select value={ticket.type} onChange={e => handleTicketChange(index, 'type', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"><option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option></select></div>
-                     <div className="w-full md:w-3/12"><label className="block text-xs text-slate-500 mb-1">發行數量</label><input type="number" required min="1" value={ticket.quantity} onChange={e => handleTicketChange(index, 'quantity', parseInt(e.target.value) || 0)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none" /></div>
+                     {/* ⭐️ 已將總發放數量移除，重新分配寬度 */}
+                     <div className="w-full md:w-7/12"><label className="block text-xs text-slate-500 mb-1">票券名稱</label><input type="text" required value={ticket.title} onChange={e => handleTicketChange(index, 'title', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none" /></div>
+                     <div className="w-full md:w-4/12"><label className="block text-xs text-slate-500 mb-1">種類</label><select value={ticket.type} onChange={e => handleTicketChange(index, 'type', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"><option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option></select></div>
                      <div className="w-full md:w-1/12 flex justify-end md:justify-center md:pt-5"><button type="button" onClick={() => handleRemoveTicket(index)} disabled={newTickets.length === 1} className="p-2 text-slate-500 hover:text-rose-500 disabled:opacity-30"><Trash2 className="w-5 h-5" /></button></div>
                    </div>
                  ))}
@@ -393,14 +406,44 @@ export default function AdminDashboardPage() {
 
              <div className="flex justify-end">
                <button type="submit" disabled={isSubmitting} className="flex gap-2 px-8 py-4 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
-                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 確認創建活動與發行票券
+                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 確認創建活動
                </button>
              </div>
            </form>
         )}
       </main>
 
-      {/* ================= 派發與產生魔法連結專屬 Modal (含單筆/批次) ================= */}
+      {/* ================= 修改活動專屬 Modal ================= */}
+      {editModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-lg rounded-3xl p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setEditModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1"><X className="w-6 h-6" /></button>
+            
+            <div className="mb-6">
+              <h3 className="text-2xl font-bold text-white flex items-center gap-2 mb-1"><Pencil className="w-6 h-6 text-emerald-400" /> 修改活動基本資訊</h3>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div><label className="block text-xs font-bold text-slate-400 mb-1">活動標題</label><input type="text" required value={editEventName} onChange={e => setEditEventName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none" /></div>
+              <div><label className="block text-xs font-bold text-slate-400 mb-1">活動日期</label><input type="date" required value={editEventDate} onChange={e => setEditEventDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark]" /></div>
+              
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">更換主視覺 (若不更換請留空)</label>
+                <div className="border-2 border-dashed border-slate-700 bg-slate-950/50 rounded-2xl p-4 flex flex-col items-center justify-center relative cursor-pointer" onClick={() => document.getElementById('edit-visual-upload')?.click()}>
+                  <input id="edit-visual-upload" type="file" accept="image/*" className="hidden" onChange={(e) => setEditVisualFile(e.target.files?.[0] || null)} />
+                  {editVisualFile ? <div className="text-emerald-400 font-bold flex gap-2"><CheckCircle2 className="w-5 h-5"/> 已選取新圖片：{editVisualFile.name}</div> : <><ImageIcon className="w-8 h-8 text-slate-500 mb-2" /><p className="text-slate-300 font-bold text-sm">點擊上傳新圖片 (1600x400)</p></>}
+                </div>
+              </div>
+
+              <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center gap-2 py-4 mt-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 儲存修改
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= 派發與產生魔法連結專屬 Modal ================= */}
       {issueModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-lg rounded-3xl p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
@@ -411,23 +454,15 @@ export default function AdminDashboardPage() {
               <p className="text-slate-400 text-sm">目標活動：<span className="text-indigo-300 font-bold">{issueEventName}</span></p>
             </div>
 
-            {/* 模式切換 Tabs */}
             <div className="flex bg-slate-950 rounded-lg p-1 mb-6 border border-slate-800">
               <button onClick={() => setIssueMode('single')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${issueMode === 'single' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>單筆發送</button>
               <button onClick={() => setIssueMode('batch')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${issueMode === 'batch' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>批次匯入 (Excel)</button>
             </div>
 
-            {/* ====== 單筆發送模式 ====== */}
             {issueMode === 'single' && (
               <form onSubmit={handleSingleIssue} className="space-y-4 animate-in fade-in">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1 tracking-wider">玩家註冊信箱 (必填)</label>
-                  <input type="email" required value={issueEmail} onChange={e => setIssueEmail(e.target.value)} placeholder="player@gmail.com" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1 tracking-wider">召喚師暱稱 (必填)</label>
-                  <input type="text" required value={issueSummonerName} onChange={e => setIssueSummonerName(e.target.value)} placeholder="例如：光暗神之手" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none" />
-                </div>
+                <div><label className="block text-xs font-bold text-slate-400 mb-1 tracking-wider">玩家註冊信箱 (必填)</label><input type="email" required value={issueEmail} onChange={e => setIssueEmail(e.target.value)} placeholder="player@gmail.com" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none" /></div>
+                <div><label className="block text-xs font-bold text-slate-400 mb-1 tracking-wider">召喚師暱稱 (必填)</label><input type="text" required value={issueSummonerName} onChange={e => setIssueSummonerName(e.target.value)} placeholder="例如：光暗神之手" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none" /></div>
 
                 {!singleGeneratedLink && !singleStatusMsg && (
                   <button type="submit" disabled={isLoading} className="w-full flex justify-center items-center gap-2 py-4 mt-6 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
@@ -450,42 +485,23 @@ export default function AdminDashboardPage() {
               </form>
             )}
 
-            {/* ====== 批次匯入模式 ====== */}
             {issueMode === 'batch' && (
               <div className="space-y-4 animate-in fade-in">
                 {batchResults.length === 0 ? (
                   <>
-                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">
-                      💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。系統會自動逐一發送，請勿關閉視窗直到進度條完成。
-                    </div>
-                    <div>
-                      <textarea 
-                        value={batchInput} onChange={e => setBatchInput(e.target.value)} 
-                        placeholder={`player1@gmail.com, 神之手\nplayer2@yahoo.com.tw, 龍騎士`} 
-                        className="w-full h-48 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none whitespace-pre"
-                      />
-                    </div>
+                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。</div>
+                    <div><textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} placeholder={`player1@gmail.com, 神之手\nplayer2@yahoo.com.tw, 龍騎士`} className="w-full h-48 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none whitespace-pre" /></div>
                     <button onClick={handleBatchIssue} disabled={isBatchProcessing} className="w-full flex justify-center items-center gap-2 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
                       {isBatchProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />} {isBatchProcessing ? '批次派發中，請勿關閉...' : '開始批次派發'}
                     </button>
-                    
-                    {/* 進度條 */}
                     {isBatchProcessing && batchProgress.total > 0 && (
-                      <div className="mt-4">
-                        <div className="flex justify-between text-xs text-slate-400 mb-1"><span>處理進度</span><span>{batchProgress.current} / {batchProgress.total}</span></div>
-                        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }} /></div>
-                      </div>
+                      <div className="mt-4"><div className="flex justify-between text-xs text-slate-400 mb-1"><span>處理進度</span><span>{batchProgress.current} / {batchProgress.total}</span></div><div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }} /></div></div>
                     )}
                   </>
                 ) : (
-                  // 批次結果報表
                   <div className="animate-in fade-in">
                     <p className="text-emerald-400 font-bold mb-2 flex items-center gap-2"><CheckCircle2 className="w-5 h-5"/> 批次派發完成！</p>
-                    <p className="text-xs text-slate-400 mb-2">請全選底下文字，直接複製貼回 Excel 即可保存連結報表。</p>
-                    <textarea 
-                      readOnly value={batchResults.join('\n')}
-                      className="w-full h-64 bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 font-mono focus:outline-none whitespace-pre"
-                    />
+                    <textarea readOnly value={batchResults.join('\n')} className="w-full h-64 bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 font-mono focus:outline-none whitespace-pre" />
                     <button type="button" onClick={() => copyToClipboard(batchResults.join('\n'))} className="w-full py-3 mt-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold flex justify-center gap-2"><Copy className="w-4 h-4"/> 一鍵複製報表</button>
                     <button type="button" onClick={() => { setBatchResults([]); setBatchInput(""); }} className="w-full py-3 mt-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold">繼續匯入下一批</button>
                   </div>
