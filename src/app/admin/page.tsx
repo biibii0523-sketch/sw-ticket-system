@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   ShieldAlert, BarChart3, RefreshCcw, LogOut, Activity, 
-  PlusCircle, Image as ImageIcon, Trash2, Save, Calendar, Ticket, CheckCircle2, Loader2
+  PlusCircle, Image as ImageIcon, Trash2, Save, Calendar, Ticket, CheckCircle2, Loader2, Send
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -22,6 +22,9 @@ interface NewTicket {
   title: string; type: "admission" | "food" | "game" | "gift" | "photo"; quantity: number;
 }
 
+// 測試帳號 ID (與玩家端對應)
+const TEST_PLAYER_ID = '33333333-3333-3333-3333-333333333333';
+
 export default function AdminDashboardPage() {
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [adminPin, setAdminPin] = useState("");
@@ -38,7 +41,7 @@ export default function AdminDashboardPage() {
   const [newEventDate, setNewEventDate] = useState("");
   const [visualFile, setVisualFile] = useState<File | null>(null);
   const [newTickets, setNewTickets] = useState<NewTicket[]>([
-    { title: "12週年派對入場卷", type: "admission", quantity: 500 }
+    { title: "派對入場卷", type: "admission", quantity: 500 }
   ]);
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -88,23 +91,63 @@ export default function AdminDashboardPage() {
     if (isAdminAuth && activeTab === "dashboard") fetchDashboardData();
   }, [isAdminAuth, activeTab]);
 
-  // ⭐️ 核心防護：刪除活動功能
   const handleDeleteEvent = async (eventId: string, eventName: string) => {
-    // 嚴格警告，避免手滑
-    const confirmDelete = window.confirm(`⚠️ 危險操作警告 ⚠️\n\n確定要永久刪除「${eventName}」嗎？\n\n這將會一併刪除該活動的所有票券設定，以及玩家已領取的票券紀錄！此操作無法復原！`);
+    const confirmDelete = window.confirm(`⚠️ 危險操作 ⚠️\n\n確定要永久刪除「${eventName}」嗎？此操作無法復原！`);
     if (!confirmDelete) return;
 
     try {
       setIsLoading(true);
-      // 依賴資料庫的 CASCADE 設定，只要刪除 events，底下的票券都會被清空
       const { error } = await supabase.from('events').delete().eq('id', eventId);
       if (error) throw new Error(error.message);
       
       alert(`活動「${eventName}」已徹底刪除。`);
-      fetchDashboardData(); // 重新拉取資料更新畫面
+      fetchDashboardData();
     } catch (err: any) {
       console.error("刪除失敗", err);
       alert(`刪除失敗：${err.message}`);
+      setIsLoading(false);
+    }
+  };
+
+  // ⭐️ 核心新增功能：將該場活動的所有票券，派發給測試帳號
+  const handleAirdropToTestPlayer = async (eventId: string, eventName: string) => {
+    try {
+      setIsLoading(true);
+      
+      // 1. 先撈出這場活動到底有哪幾種票 (Ticket Templates)
+      const { data: templates, error: fetchError } = await supabase
+        .from('ticket_templates')
+        .select('id')
+        .eq('event_id', eventId);
+
+      if (fetchError || !templates) throw new Error("無法獲取該活動的票券模板");
+
+      // 2. 準備派發清單 (將票券 ID 與測試玩家 ID 綁定)
+      const ticketsToIssue = templates.map(t => ({
+        player_id: TEST_PLAYER_ID,
+        ticket_template_id: t.id,
+        is_redeemed: false
+      }));
+
+      // 3. 寫入 player_tickets 表 (發送至玩家票夾)
+      const { error: insertError } = await supabase
+        .from('player_tickets')
+        .insert(ticketsToIssue);
+
+      if (insertError) {
+        if (insertError.code === '23505') {
+          throw new Error("這名玩家已經領取過這場活動的票券了，無法重複派發！");
+        }
+        throw new Error(insertError.message);
+      }
+
+      alert(`🎉 成功將「${eventName}」的票券派發給測試玩家！\n\n現在請打開玩家頁面，就可以看到票券了！`);
+      fetchDashboardData(); // 更新儀表板數據 (你會看到發行量增加)
+
+    } catch (err: any) {
+      console.error("派發失敗", err);
+      alert(`派發失敗：${err.message}`);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -141,9 +184,9 @@ export default function AdminDashboardPage() {
       const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert);
       if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
 
-      alert("🎉 活動創建成功！");
+      alert("🎉 活動創建成功！\n\n提示：請到「戰情室」點擊【派發】按鈕，才能在玩家端看到票券。");
       setNewEventName(""); setNewEventDate(""); setVisualFile(null);
-      setNewTickets([{ title: "12週年派對入場卷", type: "admission", quantity: 500 }]);
+      setNewTickets([{ title: "派對入場卷", type: "admission", quantity: 500 }]);
       setActiveTab("dashboard");
     } catch (err: any) {
       console.error(err); alert(err.message || "發生未知錯誤");
@@ -178,7 +221,6 @@ export default function AdminDashboardPage() {
         <button onClick={() => setIsAdminAuth(false)} className="flex items-center gap-2 text-rose-400 font-bold"><LogOut className="w-4 h-4" /> 登出</button>
       </nav>
 
-      {/* 手機版導航 */}
       <div className="md:hidden flex justify-center gap-2 mt-4 px-4">
           <button onClick={() => setActiveTab("dashboard")} className={`flex-1 py-3 rounded-lg font-bold text-sm ${activeTab === "dashboard" ? 'bg-rose-600 text-white' : 'bg-slate-900 text-slate-400'}`}>戰情室</button>
           <button onClick={() => setActiveTab("create")} className={`flex-1 py-3 rounded-lg font-bold text-sm ${activeTab === "create" ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-slate-400'}`}>新活動</button>
@@ -200,15 +242,25 @@ export default function AdminDashboardPage() {
             {eventsData.map((ev) => (
               <div key={ev.id} className="glass-card rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative">
                 
-                {/* ⭐️ 刪除按鈕 (放在視覺圖右上角絕對定位) */}
-                <button 
-                  onClick={() => handleDeleteEvent(ev.id, ev.name)}
-                  className="absolute top-4 right-4 z-30 p-2 bg-rose-600/90 hover:bg-rose-500 text-white rounded-xl shadow-lg transition-all active:scale-95 border border-rose-400/50 flex items-center gap-2"
-                  title="刪除此活動"
-                >
-                  <Trash2 className="w-5 h-5" />
-                  <span className="text-sm font-bold hidden md:inline">刪除活動</span>
-                </button>
+                {/* ⭐️ 動作選單區塊：派發與刪除 */}
+                <div className="absolute top-4 right-4 z-30 flex gap-2">
+                  <button 
+                    onClick={() => handleAirdropToTestPlayer(ev.id, ev.name)}
+                    className="p-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-xl shadow-lg transition-all active:scale-95 border border-indigo-400/50 flex items-center gap-2"
+                    title="派發給測試帳號"
+                  >
+                    <Send className="w-5 h-5" />
+                    <span className="text-sm font-bold hidden md:inline">派發票券</span>
+                  </button>
+
+                  <button 
+                    onClick={() => handleDeleteEvent(ev.id, ev.name)}
+                    className="p-2 bg-rose-600/90 hover:bg-rose-500 text-white rounded-xl shadow-lg transition-all active:scale-95 border border-rose-400/50 flex items-center gap-2"
+                    title="刪除此活動"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
 
                 {ev.image_url && (
                   <div className="w-full h-48 relative border-b border-slate-800">
@@ -218,7 +270,7 @@ export default function AdminDashboardPage() {
                 )}
                 
                 <div className={`p-6 ${ev.image_url ? '-mt-16 relative z-20' : ''}`}>
-                  <h3 className="text-3xl font-extrabold text-white mb-2 drop-shadow-lg pr-24">{ev.name}</h3>
+                  <h3 className="text-3xl font-extrabold text-white mb-2 drop-shadow-lg pr-32">{ev.name}</h3>
                   <p className="text-emerald-400 font-mono text-sm mb-6 flex items-center gap-2"><Calendar className="w-4 h-4" /> {ev.event_date}</p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
