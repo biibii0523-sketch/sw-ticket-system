@@ -92,7 +92,7 @@ export default function AdminDashboardPage() {
 
   useEffect(() => { if (isAdminAuth && activeTab === "dashboard") fetchDashboardData(); }, [isAdminAuth, activeTab]);
 
-  // ================= 修改活動邏輯 =================
+  // ================= ⭐️ 核心升級：修改活動邏輯與順序調整 =================
   const openEditModal = (event: EventData) => {
     setEditEventId(event.id); setEditEventName(event.name); setEditEventDate(event.event_date); setEditImageUrl(event.image_url); setEditVisualFile(null);
     const mappedTickets: EditTicket[] = event.ticketStats.map(t => ({ id: t.id, title: t.title, type: t.type as any }));
@@ -104,6 +104,17 @@ export default function AdminDashboardPage() {
     const updated = [...editTickets]; updated[index] = { ...updated[index], [field]: value }; setEditTickets(updated);
   };
   const handleAddEditTicket = () => setEditTickets([...editTickets, { title: "加碼新票券", type: "gift" }]);
+
+  // 編輯視窗內的票券順序調整
+  const handleMoveEditTicketOrder = (index: number, direction: 'up' | 'down') => {
+    const newTickets = [...editTickets];
+    if (direction === 'up' && index > 0) {
+      [newTickets[index], newTickets[index - 1]] = [newTickets[index - 1], newTickets[index]];
+    } else if (direction === 'down' && index < newTickets.length - 1) {
+      [newTickets[index], newTickets[index + 1]] = [newTickets[index + 1], newTickets[index]];
+    }
+    setEditTickets(newTickets);
+  };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,34 +136,32 @@ export default function AdminDashboardPage() {
       const { error: updateError } = await supabase.from('events').update({ name: editEventName, event_date: editEventDate, image_url: finalImageUrl }).eq('id', editEventId);
       if (updateError) throw new Error(`更新活動失敗: ${updateError.message}`);
 
+      // ⭐️ 儲存時，將陣列目前的 index 寫入 sort_order
       const ticketPromises = editTickets.map(async (t, index) => {
-        if (t.id) return supabase.from('ticket_templates').update({ title: t.title, ticket_type: t.type }).eq('id', t.id);
-        else return supabase.from('ticket_templates').insert([{ event_id: editEventId, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: editTickets.length + index }]);
+        if (t.id) {
+          // 更新既有票券的名稱、種類與【順序】
+          return supabase.from('ticket_templates').update({ title: t.title, ticket_type: t.type, sort_order: index }).eq('id', t.id);
+        } else {
+          // 插入新票券並賦予【順序】
+          return supabase.from('ticket_templates').insert([{ event_id: editEventId, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index }]);
+        }
       });
       await Promise.all(ticketPromises);
 
-      alert("🎉 活動基本設定更新成功！\n名稱修改已即時同步至玩家手機。");
+      alert("🎉 活動基本設定更新成功！\n名稱與順序修改已即時同步至玩家手機。");
       fetchDashboardData();
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
   };
 
-  // ⭐️ 核心新增：一鍵全服補發
   const handleGlobalAirdrop = async () => {
     if (!window.confirm(`⚡ 確定要執行「一鍵全服補發」嗎？\n\n系統將自動找出參加過本活動的所有玩家，並為他們補齊缺少的【新票券】。\n(原有的票券不會重複發送)`)) return;
-    
     try {
       setIsAirdropping(true);
       const { data: issuedCount, error } = await supabase.rpc('airdrop_new_tickets_to_all_players', { p_event_id: editEventId });
-      
       if (error) throw error;
-      
       alert(`🎉 補發任務完成！\n系統成功補發了 ${issuedCount || 0} 張新票券給既有玩家。`);
       fetchDashboardData();
-    } catch (err: any) {
-      alert(`補發失敗：${err.message}`);
-    } finally {
-      setIsAirdropping(false);
-    }
+    } catch (err: any) { alert(`補發失敗：${err.message}`); } finally { setIsAirdropping(false); }
   };
 
   // ================= 輔助功能 =================
@@ -300,6 +309,7 @@ export default function AdminDashboardPage() {
                       const redeemRate = stat.issuedCount > 0 ? Math.round((stat.redeemedCount / stat.issuedCount) * 100) : 0;
                       return (
                         <div key={stat.id} className="bg-slate-950/50 p-4 rounded-xl border border-slate-800 relative group">
+                          {/* 戰情室快速排序保留 */}
                           <div className="absolute top-4 right-4 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => handleMoveTicketOrder(ev.id, index, 'up')} disabled={index === 0} className="p-1 text-slate-400 hover:text-yellow-400 disabled:opacity-20"><ArrowUp className="w-4 h-4"/></button>
                             <button onClick={() => handleMoveTicketOrder(ev.id, index, 'down')} disabled={index === ev.ticketStats.length - 1} className="p-1 text-slate-400 hover:text-yellow-400 disabled:opacity-20"><ArrowDown className="w-4 h-4"/></button>
@@ -364,7 +374,7 @@ export default function AdminDashboardPage() {
         )}
       </main>
 
-      {/* ================= ⭐️ 升級版：修改活動與熱更新票券 Modal ================= */}
+      {/* ================= ⭐️ 修改活動與熱更新票券 Modal (新增順序調整功能) ================= */}
       {editModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-3xl p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
@@ -372,7 +382,7 @@ export default function AdminDashboardPage() {
             
             <div className="mb-6">
               <h3 className="text-2xl font-bold text-white flex items-center gap-2 mb-1"><Pencil className="w-6 h-6 text-emerald-400" /> 修改活動與票券設定</h3>
-              <p className="text-slate-400 text-sm">變更名稱會即時同步至玩家手機。</p>
+              <p className="text-slate-400 text-sm">變更名稱與排序會即時同步至玩家手機。</p>
             </div>
 
             <form onSubmit={handleEditSubmit} className="space-y-6">
@@ -389,43 +399,48 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* 票券熱更新編輯區 */}
+              {/* ⭐️ 票券熱更新編輯區 (加入上下排序控制) */}
               <div className="border-t border-slate-800 pt-6">
                  <div className="flex justify-between items-center mb-4">
-                   <h4 className="text-lg font-bold text-white flex items-center gap-2"><Ticket className="w-5 h-5 text-yellow-500" /> 編輯既有/新增票券</h4>
+                   <h4 className="text-lg font-bold text-white flex items-center gap-2"><Ticket className="w-5 h-5 text-yellow-500" /> 編輯既有/新增票券順序</h4>
                    <button type="button" onClick={handleAddEditTicket} className="text-sm font-bold text-yellow-400 flex gap-1 border border-yellow-500/30 px-3 py-1.5 rounded-lg bg-yellow-500/10"><PlusCircle className="w-4 h-4" /> 臨時加碼票券</button>
                  </div>
                  
                  <div className="space-y-3">
                    {editTickets.map((ticket, index) => (
-                     <div key={index} className="flex flex-col md:flex-row gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800 relative">
-                       {ticket.id && <span className="absolute -top-2 -right-2 bg-emerald-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full">線上同步中</span>}
-                       <div className="w-full md:w-8/12">
-                         <label className="block text-[10px] text-slate-500 mb-1">名稱</label>
-                         <input type="text" required value={ticket.title} onChange={e => handleEditTicketChange(index, 'title', e.target.value)} className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white focus:outline-none ${ticket.id ? 'border-emerald-500/30 focus:border-emerald-500' : 'border-yellow-500/30 focus:border-yellow-500'}`} />
+                     <div key={index} className="flex items-center gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800 relative">
+                       {ticket.id && <span className="absolute -top-2 -right-2 bg-emerald-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full z-10 shadow-lg">線上同步中</span>}
+                       
+                       {/* ⭐️ 順序調整按鈕 (上下箭頭) */}
+                       <div className="flex flex-col gap-1 pr-2 border-r border-slate-800">
+                         <button type="button" onClick={() => handleMoveEditTicketOrder(index, 'up')} disabled={index === 0} className="p-1 text-slate-500 hover:text-white disabled:opacity-20 transition-colors"><ArrowUp className="w-4 h-4"/></button>
+                         <button type="button" onClick={() => handleMoveEditTicketOrder(index, 'down')} disabled={index === editTickets.length - 1} className="p-1 text-slate-500 hover:text-white disabled:opacity-20 transition-colors"><ArrowDown className="w-4 h-4"/></button>
                        </div>
-                       <div className="w-full md:w-4/12">
-                         <label className="block text-[10px] text-slate-500 mb-1">種類</label>
-                         <select value={ticket.type} onChange={e => handleEditTicketChange(index, 'type', e.target.value)} className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white focus:outline-none ${ticket.id ? 'border-emerald-500/30 focus:border-emerald-500' : 'border-yellow-500/30 focus:border-yellow-500'}`}>
-                           <option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option>
-                         </select>
+
+                       <div className="flex flex-col md:flex-row gap-3 w-full">
+                         <div className="w-full md:w-8/12">
+                           <label className="block text-[10px] text-slate-500 mb-1">名稱</label>
+                           <input type="text" required value={ticket.title} onChange={e => handleEditTicketChange(index, 'title', e.target.value)} className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white focus:outline-none transition-colors ${ticket.id ? 'border-emerald-500/30 focus:border-emerald-500' : 'border-yellow-500/30 focus:border-yellow-500'}`} />
+                         </div>
+                         <div className="w-full md:w-4/12">
+                           <label className="block text-[10px] text-slate-500 mb-1">種類</label>
+                           <select value={ticket.type} onChange={e => handleEditTicketChange(index, 'type', e.target.value)} className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white focus:outline-none transition-colors ${ticket.id ? 'border-emerald-500/30 focus:border-emerald-500' : 'border-yellow-500/30 focus:border-yellow-500'}`}>
+                             <option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option>
+                           </select>
+                         </div>
                        </div>
                      </div>
                    ))}
                  </div>
               </div>
 
-              {/* 儲存按鈕 */}
               <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center gap-2 py-4 mt-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 儲存活動與票券變更
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 儲存活動與票券順序
               </button>
 
-              {/* ⭐️ 一鍵全服補發按鈕 (置於底部) */}
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <button 
-                  type="button" 
-                  onClick={handleGlobalAirdrop} 
-                  disabled={isAirdropping}
+                  type="button" onClick={handleGlobalAirdrop} disabled={isAirdropping}
                   className="w-full flex justify-center items-center gap-2 py-3 bg-slate-800 hover:bg-yellow-600/20 hover:text-yellow-400 hover:border-yellow-500/50 text-slate-400 border border-slate-700 rounded-xl transition-all font-bold"
                 >
                   {isAirdropping ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />} 
@@ -484,7 +499,7 @@ export default function AdminDashboardPage() {
               <div className="space-y-4 animate-in fade-in">
                 {batchResults.length === 0 ? (
                   <>
-                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。如果臨時加碼了新票券，再次匯入同份名單即可為他們補發新票！</div>
+                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。</div>
                     <div><textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} placeholder={`player1@gmail.com, 神之手\nplayer2@yahoo.com.tw, 龍騎士`} className="w-full h-48 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none whitespace-pre" /></div>
                     <button onClick={handleBatchIssue} disabled={isBatchProcessing} className="w-full flex justify-center items-center gap-2 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
                       {isBatchProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />} {isBatchProcessing ? '批次派發中，請勿關閉...' : '開始批次派發'}
