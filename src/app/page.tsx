@@ -40,7 +40,6 @@ export default function PlayerTicketWallet() {
     const fetchDynamicData = async () => {
       try {
         setIsLoading(true); setErrorMsg(null);
-        // ⭐️ 抓取票券時，一併撈出 sort_order 以便排序
         const { data, error } = await supabase
           .from('players')
           .select(`
@@ -75,11 +74,11 @@ export default function PlayerTicketWallet() {
             type: t.ticket_templates.ticket_type,
             isRedeemed: t.is_redeemed,
             redeemedAt: t.redeemed_at ? new Date(t.redeemed_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute:'2-digit' }) : undefined,
-            sortOrder: t.ticket_templates.sort_order || 0 // 取出排序權重
+            sortOrder: t.ticket_templates.sort_order || 0
           });
         });
 
-        // ⭐️ 確保票券依照後台設定的 sortOrder 進行排列
+        // 依照排序權重排序
         const groupsArray = Array.from(groupsMap.values());
         groupsArray.forEach(group => group.tickets.sort((a, b) => a.sortOrder - b.sortOrder));
 
@@ -97,6 +96,7 @@ export default function PlayerTicketWallet() {
     fetchDynamicData();
   }, []);
 
+  // 防截圖動態計時器邏輯
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (selectedTicket) {
@@ -177,7 +177,7 @@ export default function PlayerTicketWallet() {
       {/* ================= Header 區塊 ================= */}
       <header className="text-center mb-6 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
         
-        {/* ⭐️ 動態活動主視覺橫幅 (置頂) - 強制 21:9 比例裁切，完美適合手機版 */}
+        {/* 動態活動主視覺橫幅 (置頂) - 強制 21:9 比例裁切 */}
         {activeEvent?.imageUrl && (
           <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(234,179,8,0.2)] border border-yellow-500/20">
             <img 
@@ -226,7 +226,7 @@ export default function PlayerTicketWallet() {
         ))}
       </div>
 
-      {/* 動態 QR Code Modal */}
+      {/* ⭐️ 強化的動態 QR Code Modal (確保高成功率) */}
       {selectedTicket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative flex flex-col items-center overflow-hidden">
@@ -237,18 +237,36 @@ export default function PlayerTicketWallet() {
               <h2 className="text-2xl font-bold text-white mb-1">{selectedTicket.title}</h2>
               <p className="text-slate-400 text-sm">請將此畫面出示給關主掃描</p>
             </div>
-            <div className="bg-white p-4 rounded-2xl flex flex-col items-center justify-center relative mb-6 shadow-[0_0_30px_rgba(255,255,255,0.1)] overflow-hidden">
-              <QRCodeSVG value={selectedTicket.id} size={180} bgColor={"#ffffff"} fgColor={"#0f172a"} level={"H"} className="relative z-10" />
-              <div className="absolute top-0 left-0 w-full h-1 bg-yellow-400/80 shadow-[0_0_15px_rgba(234,179,8,1)] z-20 animate-[scan_2s_ease-in-out_infinite] pointer-events-none" />
+            
+            {/* ⭐️ QR Code 強化區塊 */}
+            <div className="relative mb-6">
+              {/* 外圍掃描框動畫 (不干擾內部 QR Code) */}
+              <div className="absolute -inset-2 border-2 border-yellow-500/30 rounded-3xl z-0 overflow-hidden pointer-events-none">
+                 <div className="w-full h-1 bg-yellow-400/80 shadow-[0_0_15px_rgba(234,179,8,1)] absolute animate-[scan_2s_ease-in-out_infinite]" />
+              </div>
+              
+              {/* 乾淨、高對比的 QR Code 本體 */}
+              <div className="bg-white p-3 rounded-2xl flex flex-col items-center justify-center relative z-10 shadow-[0_0_30px_rgba(255,255,255,0.1)]">
+                <QRCodeSVG 
+                  value={selectedTicket.id} 
+                  size={220}         // 放大尺寸 
+                  level={"M"}        // 降低密度，方塊更大更清晰
+                  includeMargin={true} // 強制白邊 (Quiet Zone)，防背景干擾
+                  bgColor={"#ffffff"} 
+                  fgColor={"#000000"} // 使用極致純黑增加對比
+                  className="rounded-lg"
+                />
+              </div>
             </div>
+
             <div className="flex items-center gap-2 text-slate-400 text-sm font-mono bg-slate-950 px-4 py-2 rounded-full border border-slate-800">
               <RefreshCw className={`w-4 h-4 ${qrRefreshTimer <= 5 ? 'text-rose-500 animate-spin' : 'text-slate-500'}`} />
-              更新倒數：<span className={`font-bold w-6 text-center ${qrRefreshTimer <= 5 ? 'text-rose-500' : 'text-yellow-400'}`}>{qrRefreshTimer}s</span>
+              活體防偽更新倒數：<span className={`font-bold w-6 text-center ${qrRefreshTimer <= 5 ? 'text-rose-500' : 'text-yellow-400'}`}>{qrRefreshTimer}s</span>
             </div>
           </div>
         </div>
       )}
-      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(220px); } 90% { opacity: 1; } } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
+      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(260px); } 90% { opacity: 1; } } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
     </div>
   );
 }
