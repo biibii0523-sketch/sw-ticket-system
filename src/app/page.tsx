@@ -4,61 +4,51 @@
 import React, { useState, useEffect } from "react";
 import { 
   Ticket, Utensils, Gamepad2, Camera, Gift, CheckCircle2, 
-  X, RefreshCw, Loader2, UserCircle2, AlertTriangle
+  X, RefreshCw, Loader2, UserCircle2, AlertTriangle, MapPin
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/lib/supabase";
 
 interface EventTicket {
-  id: string;
-  title: string;
-  type: "admission" | "food" | "game" | "gift" | "photo";
-  isRedeemed: boolean;
-  redeemedAt?: string;
+  id: string; title: string; type: "admission" | "food" | "game" | "gift" | "photo";
+  isRedeemed: boolean; redeemedAt?: string;
 }
 
-interface PlayerInfo {
-  summonerName: string;
-  email: string;
-}
+interface PlayerInfo { summonerName: string; email: string; }
 
-interface ActiveEventInfo {
-  name: string;
+// 定義分類後的活動結構
+interface PlayerEventGroup {
+  eventId: string;
+  eventName: string;
   imageUrl: string;
+  tickets: EventTicket[];
 }
 
-// 測試用固定玩家 ID (確保資料庫中有這筆)
 const TEST_PLAYER_ID = '33333333-3333-3333-3333-333333333333';
 
 export default function PlayerTicketWallet() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | null>(null);
-  const [eventInfo, setEventInfo] = useState<ActiveEventInfo | null>(null);
-  const [tickets, setTickets] = useState<EventTicket[]>([]);
+  
+  // ⭐️ 存放分組後的活動資料，與目前選取的活動 ID
+  const [eventGroups, setEventGroups] = useState<PlayerEventGroup[]>([]);
+  const [activeEventId, setActiveEventId] = useState<string | null>(null);
   
   const [selectedTicket, setSelectedTicket] = useState<EventTicket | null>(null);
   const [qrRefreshTimer, setQrRefreshTimer] = useState(30);
 
-  // 核心：透過一次深度關聯查詢，拿回玩家、票券與活動主視覺
   useEffect(() => {
     const fetchDynamicData = async () => {
       try {
-        setIsLoading(true);
-        setErrorMsg(null);
-
-        // ⭐️ 深度關聯查詢 (Deep Join)：一次拿回所有層級資料
+        setIsLoading(true); setErrorMsg(null);
         const { data, error } = await supabase
           .from('players')
           .select(`
             summoner_name, email,
             player_tickets (
               id, is_redeemed, redeemed_at, created_at,
-              ticket_templates (
-                title, ticket_type,
-                events ( name, image_url )
-              )
+              ticket_templates ( title, ticket_type, events ( id, name, image_url ) )
             )
           `)
           .eq('id', TEST_PLAYER_ID)
@@ -67,48 +57,44 @@ export default function PlayerTicketWallet() {
         if (error) throw error;
         if (!data) throw new Error("找不到玩家資料");
 
-        setPlayerInfo({
-          summonerName: data.summoner_name,
-          email: data.email
-        });
+        setPlayerInfo({ summonerName: data.summoner_name, email: data.email });
 
+        // ⭐️ 將所有票券依據 "活動 (events.id)" 進行分組 (Group By)
+        const groupsMap = new Map<string, PlayerEventGroup>();
         const playerTickets = data.player_tickets || [];
-        
-        // 擷取第一張票券所屬的「活動資訊」(用來渲染動態背景與標題)
-        if (playerTickets.length > 0) {
-          const relatedEvent = (playerTickets[0] as any).ticket_templates.events;
-          if (relatedEvent) {
-            setEventInfo({
-              name: relatedEvent.name,
-              imageUrl: relatedEvent.image_url
-            });
-          }
-        }
 
-        // 格式化票券列表
-        const formattedTickets: EventTicket[] = playerTickets
-          .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-          .map((t: any) => ({
+        playerTickets.forEach((t: any) => {
+          const ev = t.ticket_templates.events;
+          if (!ev) return;
+          
+          if (!groupsMap.has(ev.id)) {
+            groupsMap.set(ev.id, { eventId: ev.id, eventName: ev.name, imageUrl: ev.image_url, tickets: [] });
+          }
+          
+          groupsMap.get(ev.id)!.tickets.push({
             id: t.id,
             title: t.ticket_templates.title,
             type: t.ticket_templates.ticket_type,
             isRedeemed: t.is_redeemed,
-            redeemedAt: t.redeemed_at 
-              ? new Date(t.redeemed_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute:'2-digit' }) 
-              : undefined
-          }));
+            redeemedAt: t.redeemed_at ? new Date(t.redeemed_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute:'2-digit' }) : undefined
+          });
+        });
 
-        setTickets(formattedTickets);
-        await new Promise((resolve) => setTimeout(resolve, 500)); // 保留載入動畫體驗
+        // 轉為陣列並排序票券建立時間
+        const groupsArray = Array.from(groupsMap.values());
+        groupsArray.forEach(group => group.tickets.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
 
+        setEventGroups(groupsArray);
+        if (groupsArray.length > 0) setActiveEventId(groupsArray[0].eventId); // 預設顯示第一場活動
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
       } catch (error: any) {
         console.error("連線失敗:", error);
-        setErrorMsg("無法連線至伺服器，請確認網路或資料庫設定。");
+        setErrorMsg("無法連線至伺服器，請確認網路設定。");
       } finally {
         setIsLoading(false);
       }
     };
-
     fetchDynamicData();
   }, []);
 
@@ -116,9 +102,7 @@ export default function PlayerTicketWallet() {
     let timer: NodeJS.Timeout;
     if (selectedTicket) {
       setQrRefreshTimer(30);
-      timer = setInterval(() => {
-        setQrRefreshTimer((prev) => (prev <= 1 ? 30 : prev - 1));
-      }, 1000);
+      timer = setInterval(() => setQrRefreshTimer((prev) => (prev <= 1 ? 30 : prev - 1)), 1000);
     }
     return () => clearInterval(timer);
   }, [selectedTicket]);
@@ -146,53 +130,77 @@ export default function PlayerTicketWallet() {
   if (errorMsg) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 z-50 text-center bg-slate-950">
-        <AlertTriangle className="w-16 h-16 text-rose-500 mb-4 drop-shadow-[0_0_15px_rgba(244,63,94,0.5)]" />
-        <h2 className="text-xl font-bold text-rose-400 mb-2">系統異常</h2>
-        <p className="text-slate-400">{errorMsg}</p>
+        <AlertTriangle className="w-16 h-16 text-rose-500 mb-4" />
+        <h2 className="text-xl font-bold text-rose-400 mb-2">系統異常</h2><p className="text-slate-400">{errorMsg}</p>
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col items-center min-h-screen px-4 py-12 text-slate-100 relative z-10 overflow-hidden">
-      
-      {/* ⭐️ 動態活動主視覺背景 (取代 layout.tsx 的硬編碼) */}
-      <div 
-        className="fixed inset-0 z-[-2] bg-cover bg-center bg-no-repeat transition-opacity duration-1000 opacity-60"
-        style={{ backgroundImage: eventInfo?.imageUrl ? `url('${eventInfo.imageUrl}')` : 'none' }}
-      />
-      <div className="fixed inset-0 z-[-1] bg-gradient-to-b from-slate-950/80 via-slate-900/70 to-slate-950/95 backdrop-blur-[2px]" />
+  if (eventGroups.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen z-50 bg-slate-950 text-center px-4">
+         <Ticket className="w-16 h-16 text-slate-600 mb-4" />
+         <h2 className="text-xl font-bold text-slate-300">目前您的票券夾是空的</h2>
+         <p className="text-slate-500 text-sm mt-2">如果您已報名活動，請等待主辦單位派發票券。</p>
+      </div>
+    )
+  }
 
-      {/* ================= Header 區塊 ================= */}
-      <header className="text-center mb-10 w-full max-w-md animate-in fade-in slide-in-from-top-4 duration-700">
-        <div className="inline-block px-4 py-1.5 mb-4 rounded-full border border-yellow-500/40 bg-yellow-500/20 text-yellow-400 text-xs font-bold tracking-widest uppercase backdrop-blur-md shadow-[0_0_15px_rgba(234,179,8,0.2)]">
-          專屬數位憑證
+  // 取得目前選取的活動資料
+  const activeEvent = eventGroups.find(g => g.eventId === activeEventId);
+
+  return (
+    <div className="flex flex-col items-center min-h-screen px-4 py-8 text-slate-100 relative z-10 overflow-hidden">
+      
+      {/* 動態背景 */}
+      <div 
+        className="fixed inset-0 z-[-2] bg-cover bg-center bg-no-repeat transition-all duration-1000 ease-in-out opacity-60 scale-105"
+        style={{ backgroundImage: activeEvent?.imageUrl ? `url('${activeEvent.imageUrl}')` : 'none' }}
+      />
+      <div className="fixed inset-0 z-[-1] bg-gradient-to-b from-slate-950/90 via-slate-900/80 to-slate-950/95 backdrop-blur-[4px]" />
+
+      {/* ⭐️ 場次切換 Tabs (如果有兩場以上的活動才顯示) */}
+      {eventGroups.length > 1 && (
+        <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-4 mb-6 scrollbar-hide snap-x">
+          {eventGroups.map((group) => (
+            <button
+              key={group.eventId}
+              onClick={() => setActiveEventId(group.eventId)}
+              className={`snap-center shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all duration-300 border backdrop-blur-md
+                ${activeEventId === group.eventId 
+                  ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]' 
+                  : 'bg-slate-900/50 text-slate-400 border-slate-700/50 hover:bg-slate-800'
+                }
+              `}
+            >
+              <MapPin className="w-4 h-4" /> {group.eventName.substring(0, 8)}...
+            </button>
+          ))}
         </div>
-        
-        {/* ⭐️ 動態活動標題 */}
-        <h1 className="text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-yellow-300 via-yellow-100 to-yellow-500 text-transparent bg-clip-text drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] mb-2">
-          {eventInfo?.name || "未知活動"}
+      )}
+
+      {/* Header 區塊 */}
+      <header className="text-center mb-8 w-full max-w-md animate-in fade-in slide-in-from-top-4 duration-700">
+        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-yellow-300 via-yellow-100 to-yellow-500 text-transparent bg-clip-text drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] mb-2 px-4 leading-tight">
+          {activeEvent?.eventName}
         </h1>
-        
-        <div className="flex items-center justify-center gap-2 mt-5 px-5 py-2 glass-card rounded-full w-fit mx-auto epic-glow border-yellow-500/30">
+        <div className="flex items-center justify-center gap-2 mt-4 px-5 py-2 glass-card rounded-full w-fit mx-auto epic-glow border-yellow-500/30">
           <UserCircle2 className="w-4 h-4 text-emerald-400" />
-          <p className="text-slate-200 text-sm tracking-wide">
-            召喚師：<span className="text-white font-bold">{playerInfo?.summonerName}</span>
-          </p>
+          <p className="text-slate-200 text-sm tracking-wide">召喚師：<span className="text-white font-bold">{playerInfo?.summonerName}</span></p>
         </div>
       </header>
 
-      {/* ================= 票券列表 ================= */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-2xl pb-20">
-        {tickets.map((ticket, index) => (
+      {/* 票券列表 (使用 key 強制 React 重新渲染動畫) */}
+      <div key={activeEventId} className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-2xl pb-20">
+        {activeEvent?.tickets.map((ticket, index) => (
           <button
             key={ticket.id}
             onClick={() => !ticket.isRedeemed && setSelectedTicket(ticket)}
             disabled={ticket.isRedeemed}
-            className={`relative overflow-hidden flex flex-col items-center justify-center p-5 rounded-2xl transition-all duration-300 group animate-in fade-in slide-in-from-bottom-4
+            className={`relative overflow-hidden flex flex-col items-center justify-center p-5 rounded-2xl transition-all duration-300 group animate-in zoom-in-95 fade-in
               ${ticket.isRedeemed ? "bg-slate-950/80 border border-slate-800/50 opacity-60 cursor-not-allowed grayscale" : "glass-card hover:border-yellow-500/50 hover:bg-white/10 active:scale-95 hover:shadow-[0_0_20px_rgba(234,179,8,0.2)]"}
             `}
-            style={{ animationDelay: `${index * 150}ms`, animationFillMode: "both" }}
+            style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
           >
             {!ticket.isRedeemed && <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />}
             
@@ -212,7 +220,7 @@ export default function PlayerTicketWallet() {
         ))}
       </div>
 
-      {/* ================= 動態 QR Code Modal ================= */}
+      {/* 動態 QR Code Modal */}
       {selectedTicket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative flex flex-col items-center overflow-hidden">
@@ -234,7 +242,7 @@ export default function PlayerTicketWallet() {
           </div>
         </div>
       )}
-      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(220px); } 90% { opacity: 1; } }`}} />
+      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(220px); } 90% { opacity: 1; } } /* 隱藏滾動條 */ .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
     </div>
   );
 }
