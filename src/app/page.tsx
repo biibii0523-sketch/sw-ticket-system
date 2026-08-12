@@ -11,12 +11,11 @@ import { supabase } from "@/lib/supabase";
 
 interface EventTicket {
   id: string; title: string; type: "admission" | "food" | "game" | "gift" | "photo";
-  isRedeemed: boolean; redeemedAt?: string;
+  isRedeemed: boolean; redeemedAt?: string; sortOrder: number;
 }
 
 interface PlayerInfo { summonerName: string; email: string; }
 
-// 定義分類後的活動結構
 interface PlayerEventGroup {
   eventId: string;
   eventName: string;
@@ -31,7 +30,6 @@ export default function PlayerTicketWallet() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | null>(null);
   
-  // ⭐️ 存放分組後的活動資料，與目前選取的活動 ID
   const [eventGroups, setEventGroups] = useState<PlayerEventGroup[]>([]);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   
@@ -42,13 +40,14 @@ export default function PlayerTicketWallet() {
     const fetchDynamicData = async () => {
       try {
         setIsLoading(true); setErrorMsg(null);
+        // ⭐️ 抓取票券時，一併撈出 sort_order 以便排序
         const { data, error } = await supabase
           .from('players')
           .select(`
             summoner_name, email,
             player_tickets (
               id, is_redeemed, redeemed_at, created_at,
-              ticket_templates ( title, ticket_type, events ( id, name, image_url ) )
+              ticket_templates ( title, ticket_type, sort_order, events ( id, name, image_url ) )
             )
           `)
           .eq('id', TEST_PLAYER_ID)
@@ -59,7 +58,6 @@ export default function PlayerTicketWallet() {
 
         setPlayerInfo({ summonerName: data.summoner_name, email: data.email });
 
-        // ⭐️ 將所有票券依據 "活動 (events.id)" 進行分組 (Group By)
         const groupsMap = new Map<string, PlayerEventGroup>();
         const playerTickets = data.player_tickets || [];
 
@@ -76,16 +74,17 @@ export default function PlayerTicketWallet() {
             title: t.ticket_templates.title,
             type: t.ticket_templates.ticket_type,
             isRedeemed: t.is_redeemed,
-            redeemedAt: t.redeemed_at ? new Date(t.redeemed_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute:'2-digit' }) : undefined
+            redeemedAt: t.redeemed_at ? new Date(t.redeemed_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute:'2-digit' }) : undefined,
+            sortOrder: t.ticket_templates.sort_order || 0 // 取出排序權重
           });
         });
 
-        // 轉為陣列並排序票券建立時間
+        // ⭐️ 確保票券依照後台設定的 sortOrder 進行排列
         const groupsArray = Array.from(groupsMap.values());
-        groupsArray.forEach(group => group.tickets.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
+        groupsArray.forEach(group => group.tickets.sort((a, b) => a.sortOrder - b.sortOrder));
 
         setEventGroups(groupsArray);
-        if (groupsArray.length > 0) setActiveEventId(groupsArray[0].eventId); // 預設顯示第一場活動
+        if (groupsArray.length > 0) setActiveEventId(groupsArray[0].eventId);
 
         await new Promise((resolve) => setTimeout(resolve, 500));
       } catch (error: any) {
@@ -146,22 +145,18 @@ export default function PlayerTicketWallet() {
     )
   }
 
-  // 取得目前選取的活動資料
   const activeEvent = eventGroups.find(g => g.eventId === activeEventId);
 
   return (
-    <div className="flex flex-col items-center min-h-screen px-4 py-8 text-slate-100 relative z-10 overflow-hidden">
+    <div className="flex flex-col items-center min-h-screen px-4 py-6 text-slate-100 relative z-10 overflow-hidden">
       
-      {/* 動態背景 */}
-      <div 
-        className="fixed inset-0 z-[-2] bg-cover bg-center bg-no-repeat transition-all duration-1000 ease-in-out opacity-60 scale-105"
-        style={{ backgroundImage: activeEvent?.imageUrl ? `url('${activeEvent.imageUrl}')` : 'none' }}
-      />
-      <div className="fixed inset-0 z-[-1] bg-gradient-to-b from-slate-950/90 via-slate-900/80 to-slate-950/95 backdrop-blur-[4px]" />
+      {/* 底部維持乾淨的星空黑背景，凸顯上方橫幅 */}
+      <div className="fixed inset-0 z-[-2] bg-slate-950" />
+      <div className="fixed inset-0 z-[-1] bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 backdrop-blur-[4px]" />
 
-      {/* ⭐️ 場次切換 Tabs (如果有兩場以上的活動才顯示) */}
+      {/* 場次切換 Tabs */}
       {eventGroups.length > 1 && (
-        <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-4 mb-6 scrollbar-hide snap-x">
+        <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-2 mb-4 scrollbar-hide snap-x">
           {eventGroups.map((group) => (
             <button
               key={group.eventId}
@@ -179,18 +174,29 @@ export default function PlayerTicketWallet() {
         </div>
       )}
 
-      {/* Header 區塊 */}
-      <header className="text-center mb-8 w-full max-w-md animate-in fade-in slide-in-from-top-4 duration-700">
-        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-yellow-300 via-yellow-100 to-yellow-500 text-transparent bg-clip-text drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] mb-2 px-4 leading-tight">
-          {activeEvent?.eventName}
-        </h1>
-        <div className="flex items-center justify-center gap-2 mt-4 px-5 py-2 glass-card rounded-full w-fit mx-auto epic-glow border-yellow-500/30">
+      {/* ================= Header 區塊 ================= */}
+      <header className="text-center mb-6 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
+        
+        {/* ⭐️ 動態活動主視覺橫幅 (置頂) - 強制 21:9 比例裁切，完美適合手機版 */}
+        {activeEvent?.imageUrl && (
+          <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(234,179,8,0.2)] border border-yellow-500/20">
+            <img 
+              src={activeEvent.imageUrl} 
+              alt={activeEvent.eventName} 
+              className="w-full aspect-[21/9] object-cover object-center" 
+            />
+            {/* 橫幅底部的微小漸層，增加立體感 */}
+            <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+          </div>
+        )}
+
+        <div className="flex items-center justify-center gap-2 px-5 py-2 glass-card rounded-full w-fit mx-auto epic-glow border-yellow-500/30">
           <UserCircle2 className="w-4 h-4 text-emerald-400" />
           <p className="text-slate-200 text-sm tracking-wide">召喚師：<span className="text-white font-bold">{playerInfo?.summonerName}</span></p>
         </div>
       </header>
 
-      {/* 票券列表 (使用 key 強制 React 重新渲染動畫) */}
+      {/* 票券列表 */}
       <div key={activeEventId} className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-2xl pb-20">
         {activeEvent?.tickets.map((ticket, index) => (
           <button
@@ -242,7 +248,7 @@ export default function PlayerTicketWallet() {
           </div>
         </div>
       )}
-      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(220px); } 90% { opacity: 1; } } /* 隱藏滾動條 */ .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
+      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(220px); } 90% { opacity: 1; } } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
     </div>
   );
 }

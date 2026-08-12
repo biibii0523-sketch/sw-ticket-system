@@ -4,13 +4,14 @@
 import React, { useState, useEffect } from "react";
 import { 
   ShieldAlert, BarChart3, RefreshCcw, LogOut, Activity, 
-  PlusCircle, Image as ImageIcon, Trash2, Save, Calendar, Ticket, CheckCircle2, Loader2, Send
+  PlusCircle, Image as ImageIcon, Trash2, Save, Calendar, Ticket, CheckCircle2, Loader2, Send,
+  ArrowUp, ArrowDown // ⭐️ 引入上下箭頭
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface TicketStat {
   id: string; title: string; type: string;
-  totalCapacity: number; issuedCount: number; redeemedCount: number;
+  totalCapacity: number; issuedCount: number; redeemedCount: number; sortOrder: number;
 }
 
 interface EventData {
@@ -22,7 +23,6 @@ interface NewTicket {
   title: string; type: "admission" | "food" | "game" | "gift" | "photo"; quantity: number;
 }
 
-// 測試帳號 ID (與玩家端對應)
 const TEST_PLAYER_ID = '33333333-3333-3333-3333-333333333333';
 
 export default function AdminDashboardPage() {
@@ -60,21 +60,26 @@ export default function AdminDashboardPage() {
         .from('events')
         .select(`
           id, name, event_date, image_url,
-          ticket_templates ( id, title, ticket_type, total_quantity, player_tickets ( id, is_redeemed ) )
+          ticket_templates ( id, title, ticket_type, total_quantity, sort_order, player_tickets ( id, is_redeemed ) )
         `)
         .order('event_date', { ascending: false });
 
       if (error) throw error;
 
       const formattedEvents: EventData[] = (data || []).map((ev: any) => {
-        const stats: TicketStat[] = (ev.ticket_templates || []).map((template: any) => {
+        let stats: TicketStat[] = (ev.ticket_templates || []).map((template: any) => {
           const issued = template.player_tickets ? template.player_tickets.length : 0;
           const redeemed = template.player_tickets ? template.player_tickets.filter((t: any) => t.is_redeemed).length : 0;
           return {
             id: template.id, title: template.title, type: template.ticket_type,
-            totalCapacity: template.total_quantity, issuedCount: issued, redeemedCount: redeemed
+            totalCapacity: template.total_quantity, issuedCount: issued, redeemedCount: redeemed,
+            sortOrder: template.sort_order || 0
           };
         });
+        
+        // 依據資料庫的 sortOrder 排序
+        stats = stats.sort((a, b) => a.sortOrder - b.sortOrder);
+        
         return { id: ev.id, name: ev.name, event_date: ev.event_date, image_url: ev.image_url, ticketStats: stats };
       });
 
@@ -94,58 +99,66 @@ export default function AdminDashboardPage() {
   const handleDeleteEvent = async (eventId: string, eventName: string) => {
     const confirmDelete = window.confirm(`⚠️ 危險操作 ⚠️\n\n確定要永久刪除「${eventName}」嗎？此操作無法復原！`);
     if (!confirmDelete) return;
-
     try {
       setIsLoading(true);
       const { error } = await supabase.from('events').delete().eq('id', eventId);
       if (error) throw new Error(error.message);
-      
       alert(`活動「${eventName}」已徹底刪除。`);
       fetchDashboardData();
     } catch (err: any) {
-      console.error("刪除失敗", err);
       alert(`刪除失敗：${err.message}`);
       setIsLoading(false);
     }
   };
 
-  // ⭐️ 核心新增功能：將該場活動的所有票券，派發給測試帳號
+  // ⭐️ 核心新增功能：調整票券排序
+  const handleMoveTicketOrder = async (eventId: string, index: number, direction: 'up' | 'down') => {
+    const event = eventsData.find(e => e.id === eventId);
+    if (!event) return;
+    
+    const newStats = [...event.ticketStats];
+
+    // 陣列元素位置對調
+    if (direction === 'up' && index > 0) {
+      [newStats[index], newStats[index - 1]] = [newStats[index - 1], newStats[index]];
+    } else if (direction === 'down' && index < newStats.length - 1) {
+      [newStats[index], newStats[index + 1]] = [newStats[index + 1], newStats[index]];
+    } else {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      // 將對調後的新順序 (Index) 批量寫回資料庫
+      const promises = newStats.map((stat, i) =>
+        supabase.from('ticket_templates').update({ sort_order: i }).eq('id', stat.id)
+      );
+      await Promise.all(promises);
+      
+      fetchDashboardData(); // 重整畫面
+    } catch (err) {
+      console.error("排序更新失敗", err);
+      alert("排序更新失敗，請稍後再試");
+      setIsLoading(false);
+    }
+  };
+
   const handleAirdropToTestPlayer = async (eventId: string, eventName: string) => {
     try {
       setIsLoading(true);
-      
-      // 1. 先撈出這場活動到底有哪幾種票 (Ticket Templates)
-      const { data: templates, error: fetchError } = await supabase
-        .from('ticket_templates')
-        .select('id')
-        .eq('event_id', eventId);
-
+      const { data: templates, error: fetchError } = await supabase.from('ticket_templates').select('id').eq('event_id', eventId);
       if (fetchError || !templates) throw new Error("無法獲取該活動的票券模板");
 
-      // 2. 準備派發清單 (將票券 ID 與測試玩家 ID 綁定)
-      const ticketsToIssue = templates.map(t => ({
-        player_id: TEST_PLAYER_ID,
-        ticket_template_id: t.id,
-        is_redeemed: false
-      }));
-
-      // 3. 寫入 player_tickets 表 (發送至玩家票夾)
-      const { error: insertError } = await supabase
-        .from('player_tickets')
-        .insert(ticketsToIssue);
-
+      const ticketsToIssue = templates.map(t => ({ player_id: TEST_PLAYER_ID, ticket_template_id: t.id, is_redeemed: false }));
+      const { error: insertError } = await supabase.from('player_tickets').insert(ticketsToIssue);
+      
       if (insertError) {
-        if (insertError.code === '23505') {
-          throw new Error("這名玩家已經領取過這場活動的票券了，無法重複派發！");
-        }
+        if (insertError.code === '23505') throw new Error("這名玩家已經領取過這場活動的票券了，無法重複派發！");
         throw new Error(insertError.message);
       }
-
-      alert(`🎉 成功將「${eventName}」的票券派發給測試玩家！\n\n現在請打開玩家頁面，就可以看到票券了！`);
-      fetchDashboardData(); // 更新儀表板數據 (你會看到發行量增加)
-
+      alert(`🎉 成功將「${eventName}」的票券派發給測試玩家！`);
+      fetchDashboardData();
     } catch (err: any) {
-      console.error("派發失敗", err);
       alert(`派發失敗：${err.message}`);
     } finally {
       setIsLoading(false);
@@ -180,16 +193,24 @@ export default function AdminDashboardPage() {
         .from('events').insert([{ name: newEventName, event_date: newEventDate, image_url: publicUrlData.publicUrl, is_active: true }]).select('id').single();
       if (eventError || !eventData) throw new Error(`建立活動寫入失敗: ${eventError?.message}`);
 
-      const templatesToInsert = newTickets.map(t => ({ event_id: eventData.id, title: t.title, ticket_type: t.type, total_quantity: t.quantity }));
+      // ⭐️ 建立時，直接賦予 sort_order
+      const templatesToInsert = newTickets.map((t, index) => ({ 
+        event_id: eventData.id, 
+        title: t.title, 
+        ticket_type: t.type, 
+        total_quantity: t.quantity,
+        sort_order: index 
+      }));
+      
       const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert);
       if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
 
-      alert("🎉 活動創建成功！\n\n提示：請到「戰情室」點擊【派發】按鈕，才能在玩家端看到票券。");
+      alert("🎉 活動創建成功！請到「戰情室」點擊【派發】按鈕發送票券。");
       setNewEventName(""); setNewEventDate(""); setVisualFile(null);
       setNewTickets([{ title: "派對入場卷", type: "admission", quantity: 500 }]);
       setActiveTab("dashboard");
     } catch (err: any) {
-      console.error(err); alert(err.message || "發生未知錯誤");
+      alert(err.message || "發生未知錯誤");
     } finally {
       setIsSubmitting(false);
     }
@@ -242,24 +263,9 @@ export default function AdminDashboardPage() {
             {eventsData.map((ev) => (
               <div key={ev.id} className="glass-card rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative">
                 
-                {/* ⭐️ 動作選單區塊：派發與刪除 */}
                 <div className="absolute top-4 right-4 z-30 flex gap-2">
-                  <button 
-                    onClick={() => handleAirdropToTestPlayer(ev.id, ev.name)}
-                    className="p-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-xl shadow-lg transition-all active:scale-95 border border-indigo-400/50 flex items-center gap-2"
-                    title="派發給測試帳號"
-                  >
-                    <Send className="w-5 h-5" />
-                    <span className="text-sm font-bold hidden md:inline">派發票券</span>
-                  </button>
-
-                  <button 
-                    onClick={() => handleDeleteEvent(ev.id, ev.name)}
-                    className="p-2 bg-rose-600/90 hover:bg-rose-500 text-white rounded-xl shadow-lg transition-all active:scale-95 border border-rose-400/50 flex items-center gap-2"
-                    title="刪除此活動"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  <button onClick={() => handleAirdropToTestPlayer(ev.id, ev.name)} className="p-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-xl shadow-lg border border-indigo-400/50 flex gap-2"><Send className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">派發票券</span></button>
+                  <button onClick={() => handleDeleteEvent(ev.id, ev.name)} className="p-2 bg-rose-600/90 hover:bg-rose-500 text-white rounded-xl shadow-lg border border-rose-400/50 flex gap-2"><Trash2 className="w-5 h-5" /></button>
                 </div>
 
                 {ev.image_url && (
@@ -274,12 +280,26 @@ export default function AdminDashboardPage() {
                   <p className="text-emerald-400 font-mono text-sm mb-6 flex items-center gap-2"><Calendar className="w-4 h-4" /> {ev.event_date}</p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {ev.ticketStats.map((stat) => {
+                    {ev.ticketStats.map((stat, index) => {
                       const redeemRate = stat.issuedCount > 0 ? Math.round((stat.redeemedCount / stat.issuedCount) * 100) : 0;
                       return (
-                        <div key={stat.id} className="bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                          <div className="flex justify-between mb-2"><span className="text-white font-bold">{stat.title}</span><span className="text-[10px] text-slate-400 bg-slate-900 px-2 rounded border border-slate-700">{stat.type}</span></div>
-                          <div className="flex items-end gap-2 mb-2"><span className="text-3xl font-black text-white">{stat.redeemedCount}</span><span className="text-slate-500 text-sm mb-1">/ {stat.issuedCount}</span></div>
+                        <div key={stat.id} className="bg-slate-950/50 p-4 rounded-xl border border-slate-800 relative group">
+                          
+                          {/* ⭐️ 排序調整按鈕 */}
+                          <div className="absolute top-4 right-4 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleMoveTicketOrder(ev.id, index, 'up')} disabled={index === 0} className="p-1 text-slate-400 hover:text-yellow-400 disabled:opacity-20"><ArrowUp className="w-4 h-4"/></button>
+                            <button onClick={() => handleMoveTicketOrder(ev.id, index, 'down')} disabled={index === ev.ticketStats.length - 1} className="p-1 text-slate-400 hover:text-yellow-400 disabled:opacity-20"><ArrowDown className="w-4 h-4"/></button>
+                          </div>
+
+                          <div className="flex justify-between items-start mb-2 pr-8">
+                            <span className="text-white font-bold">{stat.title}</span>
+                          </div>
+                          
+                          <div className="flex justify-between items-center mb-2">
+                             <span className="text-[10px] text-slate-400 bg-slate-900 px-2 rounded border border-slate-700">{stat.type}</span>
+                             <div className="flex items-end gap-2"><span className="text-3xl font-black text-white">{stat.redeemedCount}</span><span className="text-slate-500 text-sm mb-1">/ {stat.issuedCount}</span></div>
+                          </div>
+                          
                           <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden">
                             <div className={`h-full bg-gradient-to-r ${redeemRate > 80 ? 'from-orange-500 to-rose-500' : 'from-indigo-500 to-blue-400'} transition-all`} style={{ width: `${redeemRate}%` }} />
                           </div>
@@ -302,7 +322,7 @@ export default function AdminDashboardPage() {
                <div><label className="block text-sm font-bold text-slate-400 mb-2">活動日期</label><input type="date" required value={newEventDate} onChange={e => setNewEventDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none [color-scheme:dark]" /></div>
              </div>
              <div>
-               <label className="block text-sm font-bold text-slate-400 mb-2">主視覺上傳 (1920x1080)</label>
+               <label className="block text-sm font-bold text-slate-400 mb-2">主視覺上傳 (比例 21:9，如 1024x440)</label>
                <div className="border-2 border-dashed border-slate-700 bg-slate-950/50 rounded-2xl p-8 flex flex-col items-center justify-center relative cursor-pointer" onClick={() => document.getElementById('visual-upload')?.click()}>
                  <input id="visual-upload" type="file" accept="image/*" className="hidden" onChange={(e) => setVisualFile(e.target.files?.[0] || null)} />
                  {visualFile ? <div className="text-emerald-400 font-bold flex gap-2"><CheckCircle2/> {visualFile.name}</div> : <><ImageIcon className="w-12 h-12 text-slate-500 mb-3" /><p className="text-slate-300 font-bold">點擊上傳圖片</p></>}
@@ -312,7 +332,7 @@ export default function AdminDashboardPage() {
 
            <div className="glass-card p-6 md:p-8 rounded-3xl border border-slate-800">
              <div className="flex justify-between items-center mb-6">
-               <h2 className="text-xl font-bold text-white flex gap-2"><Ticket className="w-6 h-6 text-yellow-500" /> 2. 票券設定</h2>
+               <h2 className="text-xl font-bold text-white flex gap-2"><Ticket className="w-6 h-6 text-yellow-500" /> 2. 票券設定 (建立時的順序即為顯示順序)</h2>
                <button type="button" onClick={handleAddTicket} className="text-sm font-bold text-yellow-400 flex gap-1 border border-yellow-500/30 px-3 py-1.5 rounded-lg bg-yellow-500/10"><PlusCircle className="w-4 h-4" /> 新增種類</button>
              </div>
              <div className="space-y-4">
