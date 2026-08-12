@@ -2,13 +2,14 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { ShieldCheck, Mail, AlertTriangle, Loader2 } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { ShieldCheck, Mail, AlertTriangle, Loader2, Ticket } from "lucide-react";
 import { eventConfig } from "@/config/event";
 import { supabase } from "@/lib/supabase";
 
 function ClaimGateway() {
   const searchParams = useSearchParams();
+  const router = useRouter(); // ⭐️ 引入 router 以便跳轉
   const token = searchParams.get("token");
 
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +32,7 @@ function ClaimGateway() {
         .single();
 
       if (error || !data) {
+        // ⭐️ Token 找不到，代表已被銷毀(已綁定)，或是假 Token
         setError("此魔法連結無效，或者您的票券已完成綁定。");
       } else {
         // 遮蔽 Email 保護隱私 (ex: sum********@gmail.com)
@@ -84,11 +86,26 @@ function ClaimGateway() {
           </p>
 
           {error ? (
-            <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3 w-full">
-              <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-              <p className="text-rose-400 text-sm text-left">{error}</p>
+            // ⭐️ UX 升級：給予迷路的玩家明確的引導按鈕
+            <div className="flex flex-col w-full gap-4">
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3 w-full">
+                <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                <p className="text-rose-400 text-sm text-left">{error}</p>
+              </div>
+              
+              <button 
+                onClick={() => router.push('/')}
+                className="w-full relative group overflow-hidden rounded-xl p-[1px] mt-2"
+              >
+                <span className="absolute inset-0 bg-gradient-to-r from-yellow-500 to-amber-600 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
+                <div className="relative bg-slate-900 px-4 py-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 group-hover:bg-slate-800 group-active:scale-[0.98]">
+                  <Ticket className="w-5 h-5 text-yellow-400" />
+                  <span className="font-bold text-yellow-400 tracking-wide">直接前往我的數位票夾</span>
+                </div>
+              </button>
             </div>
           ) : (
+            // 正常綁定流程
             <>
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 w-full mb-8 flex items-center justify-center gap-3">
                 <Mail className="w-5 h-5 text-slate-500" />
