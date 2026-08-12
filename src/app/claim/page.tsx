@@ -3,10 +3,10 @@
 
 import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { ShieldCheck, Mail, LogIn, AlertTriangle, Loader2 } from "lucide-react";
+import { ShieldCheck, Mail, AlertTriangle, Loader2 } from "lucide-react";
 import { eventConfig } from "@/config/event";
+import { supabase } from "@/lib/supabase";
 
-// 將主要邏輯拆分到獨立組件，以便被 Suspense 包覆 (Next.js App Router 規範)
 function ClaimGateway() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -15,58 +15,72 @@ function ClaimGateway() {
   const [expectedEmail, setExpectedEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // 模擬步驟 1：進入頁面時，透過 token 向資料庫查詢這是誰的票
   useEffect(() => {
-    if (!token) {
-      setError("無效的票券連結！請從主辦單位發送的官方信件/簡訊中點擊連結。");
-      setIsLoading(false);
-      return;
-    }
+    const verifyToken = async () => {
+      if (!token) {
+        setError("無效的票券連結！請從主辦單位發送的官方信件/簡訊中點擊連結。");
+        setIsLoading(false);
+        return;
+      }
 
-    // 模擬打 API 到後端查詢 token
-    setTimeout(() => {
-      // 假設資料庫查到這組 token 對應的是這個 Email
-      const dbEmail = "summoner.pro@gmail.com"; 
-      
-      // 將 Email 隱藏部分字元保護隱私 (ex: sum********@gmail.com)
-      const [name, domain] = dbEmail.split("@");
-      const maskedEmail = `${name.substring(0, 3)}********@${domain}`;
-      
-      setExpectedEmail(maskedEmail);
+      // 向資料庫查詢這張票是發給哪個 Email 的
+      const { data, error } = await supabase
+        .from('players')
+        .select('email')
+        .eq('magic_token', token)
+        .single();
+
+      if (error || !data) {
+        setError("此魔法連結無效，或者您的票券已完成綁定。");
+      } else {
+        // 遮蔽 Email 保護隱私 (ex: sum********@gmail.com)
+        const [name, domain] = data.email.split("@");
+        const maskedEmail = name.length > 3 
+          ? `${name.substring(0, 3)}********@${domain}`
+          : `***@${domain}`;
+        setExpectedEmail(maskedEmail);
+        
+        // 將 token 存入 localStorage，等 Google 登入跳轉回來後進行綁定
+        localStorage.setItem('sw_magic_token', token);
+      }
       setIsLoading(false);
-    }, 1000);
+    };
+
+    verifyToken();
   }, [token]);
 
-  // 模擬步驟 2：點擊 Google 登入並比對身分
   const handleGoogleLogin = async () => {
-    // 實戰中這裡會呼叫： await supabase.auth.signInWithOAuth({ provider: 'google' })
-    alert("將導向 Google 授權頁面...\n\n授權後，系統將比對您的 Google Email 是否與報名時一致。若一致，則自動綁定並前往票券夾！");
+    // 呼叫 Supabase 的 Google 登入，登入成功後自動跳回首頁 (/)
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/`,
+      }
+    });
   };
 
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <Loader2 className="w-10 h-10 text-yellow-500 animate-spin mb-4" />
-        <p className="text-slate-400 font-mono tracking-widest animate-pulse">正在驗證魔法連結...</p>
+        <p className="text-slate-400 font-mono tracking-widest animate-pulse">正在驗證魔法陣...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
-      <div className="w-full max-w-md glass-card rounded-3xl p-8 relative overflow-hidden epic-glow animate-in zoom-in-95 duration-500">
-        
-        {/* 卡片頂部裝飾光暈 */}
+    <div className="flex flex-col items-center justify-center min-h-[80vh] px-4 relative z-10">
+      <div className="w-full max-w-md glass-card rounded-3xl p-8 relative overflow-hidden epic-glow animate-in zoom-in-95 duration-500 bg-slate-900/80 border-slate-700">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-500 to-transparent opacity-50" />
         
         <div className="flex flex-col items-center text-center">
-          <div className="w-16 h-16 bg-slate-800/80 rounded-2xl flex items-center justify-center mb-6 border border-white/5 shadow-inner">
+          <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-6 border border-white/5 shadow-inner">
             <ShieldCheck className="w-8 h-8 text-yellow-400" />
           </div>
           
-          <h1 className="text-2xl font-extrabold text-white mb-2">身分驗證</h1>
+          <h1 className="text-2xl font-extrabold text-white mb-2">數位票券認證</h1>
           <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-            為了保障您的權益，票券採實名綁定。<br/>請使用報名時登記的 Google 帳號登入。
+            為了保障您的權益，票券採實名綁定。<br/>請使用報名時登記的 Google 帳號進行綁定。
           </p>
 
           {error ? (
@@ -76,20 +90,14 @@ function ClaimGateway() {
             </div>
           ) : (
             <>
-              {/* 顯示必須用來登入的遮蔽 Email */}
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 w-full mb-8 flex items-center justify-center gap-3">
                 <Mail className="w-5 h-5 text-slate-500" />
                 <span className="text-slate-300 font-mono text-sm">{expectedEmail}</span>
               </div>
 
-              {/* Google 登入按鈕 */}
-              <button 
-                onClick={handleGoogleLogin}
-                className="w-full relative group overflow-hidden rounded-xl p-[1px]"
-              >
+              <button onClick={handleGoogleLogin} className="w-full relative group overflow-hidden rounded-xl p-[1px]">
                 <span className="absolute inset-0 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
                 <div className="relative bg-slate-950 px-4 py-4 rounded-xl flex items-center justify-center gap-3 transition-all duration-300 group-hover:bg-slate-900 group-active:scale-[0.98]">
-                  {/* Google G Logo SVG */}
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                     <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -99,9 +107,6 @@ function ClaimGateway() {
                   <span className="font-bold text-white tracking-wide">Google 帳號登入與綁定</span>
                 </div>
               </button>
-              <p className="mt-4 text-xs text-slate-500 text-center">
-                綁定後票券將無法轉讓，請確保使用您個人的帳號。
-              </p>
             </>
           )}
         </div>
@@ -110,20 +115,16 @@ function ClaimGateway() {
   );
 }
 
-// 頁面主體：使用 Suspense 處理 Client-side 的搜尋參數
 export default function ClaimPage() {
   return (
-    <div className="min-h-screen pt-12 pb-12">
-      <header className="text-center mb-8">
-        <h2 className="text-xl font-bold bg-gradient-to-r from-yellow-300 to-yellow-500 text-transparent bg-clip-text">
+    <div className="min-h-screen pt-12 pb-12 bg-slate-950 flex flex-col items-center">
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
+      <header className="text-center mb-8 relative z-10">
+        <h2 className="text-xl font-bold bg-gradient-to-r from-yellow-300 to-yellow-500 text-transparent bg-clip-text drop-shadow-md">
           {eventConfig.title}
         </h2>
       </header>
-      <Suspense fallback={
-        <div className="flex justify-center mt-20">
-          <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
-        </div>
-      }>
+      <Suspense fallback={<Loader2 className="w-8 h-8 text-yellow-500 animate-spin mt-20" />}>
         <ClaimGateway />
       </Suspense>
     </div>
