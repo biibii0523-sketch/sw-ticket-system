@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import { 
   ShieldAlert, BarChart3, RefreshCcw, LogOut, Activity, 
   PlusCircle, Image as ImageIcon, Trash2, Save, Calendar, Ticket, CheckCircle2, Loader2,
-  ArrowUp, ArrowDown, UserPlus, Copy, X, Users, FileText, Send, Pencil // ⭐️ 引入 Pencil 修改圖示
+  ArrowUp, ArrowDown, UserPlus, Copy, X, FileText, Send, Pencil, Zap
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -23,6 +23,8 @@ interface NewTicket {
   title: string; type: "admission" | "food" | "game" | "gift" | "photo";
 }
 
+interface EditTicket extends NewTicket { id?: string; }
+
 export default function AdminDashboardPage() {
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [adminPin, setAdminPin] = useState("");
@@ -38,11 +40,7 @@ export default function AdminDashboardPage() {
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
   const [visualFile, setVisualFile] = useState<File | null>(null);
-  
-  // ⭐️ 移除 quantity 屬性
-  const [newTickets, setNewTickets] = useState<NewTicket[]>([
-    { title: "派對入場卷", type: "admission" }
-  ]);
+  const [newTickets, setNewTickets] = useState<NewTicket[]>([{ title: "派對入場卷", type: "admission" }]);
 
   // ================= 修改活動 Modal 狀態 =================
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -51,6 +49,8 @@ export default function AdminDashboardPage() {
   const [editEventDate, setEditEventDate] = useState("");
   const [editVisualFile, setEditVisualFile] = useState<File | null>(null);
   const [editImageUrl, setEditImageUrl] = useState("");
+  const [editTickets, setEditTickets] = useState<EditTicket[]>([]);
+  const [isAirdropping, setIsAirdropping] = useState(false);
 
   // ================= 派發票券 Modal 狀態 =================
   const [issueModalOpen, setIssueModalOpen] = useState(false);
@@ -66,37 +66,25 @@ export default function AdminDashboardPage() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [batchResults, setBatchResults] = useState<string[]>([]);
 
-  // ================= 登入與資料獲取 =================
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPin === "admin123") { setIsAdminAuth(true); setLoginError(false); } 
-    else { setLoginError(true); setAdminPin(""); }
+    if (adminPin === "admin123") { setIsAdminAuth(true); setLoginError(false); } else { setLoginError(true); setAdminPin(""); }
   };
 
   const fetchDashboardData = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('events')
-        .select(`id, name, event_date, image_url, ticket_templates ( id, title, ticket_type, sort_order, player_tickets ( id, is_redeemed ) )`)
-        .order('event_date', { ascending: false });
-
+      const { data, error } = await supabase.from('events').select(`id, name, event_date, image_url, ticket_templates ( id, title, ticket_type, sort_order, player_tickets ( id, is_redeemed ) )`).order('event_date', { ascending: false });
       if (error) throw error;
-
       const formattedEvents: EventData[] = (data || []).map((ev: any) => {
         let stats: TicketStat[] = (ev?.ticket_templates || []).map((template: any) => {
           const issued = template?.player_tickets ? template.player_tickets.length : 0;
           const redeemed = template?.player_tickets ? template.player_tickets.filter((t: any) => t.is_redeemed).length : 0;
-          return {
-            id: template.id, title: template.title, type: template.ticket_type,
-            issuedCount: issued, redeemedCount: redeemed,
-            sortOrder: template.sort_order || 0
-          };
+          return { id: template.id, title: template.title, type: template.ticket_type, issuedCount: issued, redeemedCount: redeemed, sortOrder: template.sort_order || 0 };
         });
         stats = stats.sort((a, b) => a.sortOrder - b.sortOrder);
         return { id: ev.id, name: ev.name, event_date: ev.event_date, image_url: ev.image_url, ticketStats: stats };
       });
-
       setEventsData(formattedEvents);
       setLastUpdated(new Date().toLocaleTimeString('zh-TW', { hour12: false }));
     } catch (err) { console.error(err); } finally { setIsLoading(false); }
@@ -106,23 +94,25 @@ export default function AdminDashboardPage() {
 
   // ================= 修改活動邏輯 =================
   const openEditModal = (event: EventData) => {
-    setEditEventId(event.id);
-    setEditEventName(event.name);
-    setEditEventDate(event.event_date);
-    setEditImageUrl(event.image_url);
-    setEditVisualFile(null);
+    setEditEventId(event.id); setEditEventName(event.name); setEditEventDate(event.event_date); setEditImageUrl(event.image_url); setEditVisualFile(null);
+    const mappedTickets: EditTicket[] = event.ticketStats.map(t => ({ id: t.id, title: t.title, type: t.type as any }));
+    setEditTickets(mappedTickets);
     setEditModalOpen(true);
   };
+
+  const handleEditTicketChange = (index: number, field: keyof EditTicket, value: string) => {
+    const updated = [...editTickets]; updated[index] = { ...updated[index], [field]: value }; setEditTickets(updated);
+  };
+  const handleAddEditTicket = () => setEditTickets([...editTickets, { title: "加碼新票券", type: "gift" }]);
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editEventName || !editEventDate) return alert("請填寫活動名稱與日期！");
+    for (const t of editTickets) if (!t.title) return alert("請確認所有票券名稱皆已填寫！");
 
     try {
       setIsSubmitting(true);
       let finalImageUrl = editImageUrl;
-
-      // 如果有選擇新圖片，先上傳新圖片
       if (editVisualFile) {
         const fileExt = editVisualFile.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -132,112 +122,84 @@ export default function AdminDashboardPage() {
         finalImageUrl = publicUrlData.publicUrl;
       }
 
-      const { error: updateError } = await supabase
-        .from('events')
-        .update({ name: editEventName, event_date: editEventDate, image_url: finalImageUrl })
-        .eq('id', editEventId);
-
+      const { error: updateError } = await supabase.from('events').update({ name: editEventName, event_date: editEventDate, image_url: finalImageUrl }).eq('id', editEventId);
       if (updateError) throw new Error(`更新活動失敗: ${updateError.message}`);
 
-      alert("🎉 活動更新成功！");
-      setEditModalOpen(false);
+      const ticketPromises = editTickets.map(async (t, index) => {
+        if (t.id) return supabase.from('ticket_templates').update({ title: t.title, ticket_type: t.type }).eq('id', t.id);
+        else return supabase.from('ticket_templates').insert([{ event_id: editEventId, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: editTickets.length + index }]);
+      });
+      await Promise.all(ticketPromises);
+
+      alert("🎉 活動基本設定更新成功！\n名稱修改已即時同步至玩家手機。");
+      fetchDashboardData();
+    } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
+  };
+
+  // ⭐️ 核心新增：一鍵全服補發
+  const handleGlobalAirdrop = async () => {
+    if (!window.confirm(`⚡ 確定要執行「一鍵全服補發」嗎？\n\n系統將自動找出參加過本活動的所有玩家，並為他們補齊缺少的【新票券】。\n(原有的票券不會重複發送)`)) return;
+    
+    try {
+      setIsAirdropping(true);
+      const { data: issuedCount, error } = await supabase.rpc('airdrop_new_tickets_to_all_players', { p_event_id: editEventId });
+      
+      if (error) throw error;
+      
+      alert(`🎉 補發任務完成！\n系統成功補發了 ${issuedCount || 0} 張新票券給既有玩家。`);
       fetchDashboardData();
     } catch (err: any) {
-      alert(err.message || "發生未知錯誤");
+      alert(`補發失敗：${err.message}`);
     } finally {
-      setIsSubmitting(false);
+      setIsAirdropping(false);
     }
   };
 
   // ================= 輔助功能 =================
   const handleDeleteEvent = async (eventId: string, eventName: string) => {
     if (!window.confirm(`⚠️ 確定要永久刪除「${eventName}」嗎？此操作無法復原！`)) return;
-    try {
-      setIsLoading(true);
-      const { error } = await supabase.from('events').delete().eq('id', eventId);
-      if (error) throw new Error(error.message);
-      fetchDashboardData();
-    } catch (err: any) { alert(`刪除失敗：${err.message}`); setIsLoading(false); }
+    try { setIsLoading(true); const { error } = await supabase.from('events').delete().eq('id', eventId); if (error) throw new Error(error.message); fetchDashboardData(); } catch (err: any) { alert(`刪除失敗：${err.message}`); setIsLoading(false); }
   };
 
   const handleMoveTicketOrder = async (eventId: string, index: number, direction: 'up' | 'down') => {
-    const event = eventsData.find(e => e.id === eventId);
-    if (!event) return;
-    const newStats = [...event.ticketStats];
+    const event = eventsData.find(e => e.id === eventId); if (!event) return; const newStats = [...event.ticketStats];
     if (direction === 'up' && index > 0) [newStats[index], newStats[index - 1]] = [newStats[index - 1], newStats[index]];
-    else if (direction === 'down' && index < newStats.length - 1) [newStats[index], newStats[index + 1]] = [newStats[index + 1], newStats[index]];
-    else return;
-
-    try {
-      setIsLoading(true);
-      const promises = newStats.map((stat, i) => supabase.from('ticket_templates').update({ sort_order: i }).eq('id', stat.id));
-      await Promise.all(promises);
-      fetchDashboardData();
-    } catch (err) { alert("排序更新失敗"); setIsLoading(false); }
+    else if (direction === 'down' && index < newStats.length - 1) [newStats[index], newStats[index + 1]] = [newStats[index + 1], newStats[index]]; else return;
+    try { setIsLoading(true); const promises = newStats.map((stat, i) => supabase.from('ticket_templates').update({ sort_order: i }).eq('id', stat.id)); await Promise.all(promises); fetchDashboardData(); } catch (err) { alert("排序更新失敗"); setIsLoading(false); }
   };
 
   const handleAddTicket = () => setNewTickets([...newTickets, { title: "", type: "game" }]);
   const handleRemoveTicket = (index: number) => { if (newTickets.length > 1) setNewTickets(newTickets.filter((_, i) => i !== index)); };
-  const handleTicketChange = (index: number, field: keyof NewTicket, value: string) => {
-    const updated = [...newTickets]; updated[index] = { ...updated[index], [field]: value }; setNewTickets(updated);
-  };
+  const handleTicketChange = (index: number, field: keyof NewTicket, value: string) => { const updated = [...newTickets]; updated[index] = { ...updated[index], [field]: value }; setNewTickets(updated); };
 
   const handleSubmitEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEventName || !newEventDate) return alert("請填寫活動名稱與日期！");
-    if (!visualFile) return alert("請上傳活動主視覺！");
-    for (const t of newTickets) if (!t.title) return alert("請確認票券名稱已填寫！");
-
+    if (!newEventName || !newEventDate) return alert("請填寫活動名稱與日期！"); if (!visualFile) return alert("請上傳活動主視覺！"); for (const t of newTickets) if (!t.title) return alert("請確認票券名稱已填寫！");
     try {
       setIsSubmitting(true);
-      const fileExt = visualFile.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('event-visuals').upload(fileName, visualFile);
-      if (uploadError) throw new Error("圖片上傳失敗：" + uploadError.message);
+      const fileExt = visualFile.name.split('.').pop(); const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('event-visuals').upload(fileName, visualFile); if (uploadError) throw new Error("圖片上傳失敗：" + uploadError.message);
       const { data: publicUrlData } = supabase.storage.from('event-visuals').getPublicUrl(fileName);
-      
-      const { data: eventData, error: eventError } = await supabase
-        .from('events').insert([{ name: newEventName, event_date: newEventDate, image_url: publicUrlData.publicUrl, is_active: true }]).select('id').single();
+      const { data: eventData, error: eventError } = await supabase.from('events').insert([{ name: newEventName, event_date: newEventDate, image_url: publicUrlData.publicUrl, is_active: true }]).select('id').single();
       if (eventError || !eventData) throw new Error(`建立活動寫入失敗: ${eventError?.message}`);
-
-      // ⭐️ 建立時，直接預設 total_quantity = 0 (因為目前依賴實際派發)
-      const templatesToInsert = newTickets.map((t, index) => ({ 
-        event_id: eventData.id, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index 
-      }));
-      const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert);
-      if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
-
+      const templatesToInsert = newTickets.map((t, index) => ({ event_id: eventData.id, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index }));
+      const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert); if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
       alert("🎉 活動創建成功！請到「戰情室」點擊【派發】按鈕發送票券。");
-      setNewEventName(""); setNewEventDate(""); setVisualFile(null);
-      setNewTickets([{ title: "派對入場卷", type: "admission" }]);
-      setActiveTab("dashboard");
+      setNewEventName(""); setNewEventDate(""); setVisualFile(null); setNewTickets([{ title: "派對入場卷", type: "admission" }]); setActiveTab("dashboard");
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
   };
 
-  // ================= 派發票券功能區塊 =================
+  // ================= 派發票券功能 =================
   const openIssueModal = (eventId: string, eventName: string) => {
-    setIssueEventId(eventId); setIssueEventName(eventName); setIssueMode('single');
-    setIssueSummonerName(""); setIssueEmail("");
-    setSingleGeneratedLink(null); setSingleStatusMsg(null);
-    setBatchInput(""); setBatchResults([]); setBatchProgress({ current: 0, total: 0 });
-    setIssueModalOpen(true);
+    setIssueEventId(eventId); setIssueEventName(eventName); setIssueMode('single'); setIssueSummonerName(""); setIssueEmail(""); setSingleGeneratedLink(null); setSingleStatusMsg(null); setBatchInput(""); setBatchResults([]); setBatchProgress({ current: 0, total: 0 }); setIssueModalOpen(true);
   };
 
   const handleSingleIssue = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!issueEmail.includes('@') || !issueSummonerName.trim()) return alert('請確認信箱格式正確且已填寫暱稱！');
-    setIsLoading(true);
+    e.preventDefault(); if (!issueEmail.includes('@') || !issueSummonerName.trim()) return alert('請確認信箱格式正確且已填寫暱稱！'); setIsLoading(true);
     try {
       const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { p_event_id: issueEventId, p_summoner_name: issueSummonerName.trim(), p_email: issueEmail.trim() });
       if (error) throw error;
-      if (magicToken) {
-        const link = `${window.location.origin}/claim?token=${magicToken}`;
-        setSingleGeneratedLink(link);
-        setSingleStatusMsg({ type: 'success', text: '✅ 魔法連結產生成功！請複製給玩家。' });
-      } else {
-        setSingleGeneratedLink(null);
-        setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！' });
-      }
+      if (magicToken) { setSingleGeneratedLink(`${window.location.origin}/claim?token=${magicToken}`); setSingleStatusMsg({ type: 'success', text: '✅ 魔法連結產生成功！請複製給玩家。' }); } else { setSingleGeneratedLink(null); setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！' }); }
       fetchDashboardData();
     } catch (err: any) { setSingleStatusMsg({ type: 'error', text: `派發失敗：${err.message}` }); } finally { setIsLoading(false); }
   };
@@ -245,22 +207,15 @@ export default function AdminDashboardPage() {
   const handleBatchIssue = async () => {
     if (!batchInput.trim()) return alert("請貼上匯入資料！");
     const lines = batchInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const parsedList = lines.map(line => {
-      const parts = line.split(/[,\t]+/).map(p => p.trim());
-      return { email: parts[0] || "", name: parts[1] || "" };
-    });
-    const invalidItem = parsedList.find(p => !p.email.includes('@') || !p.name);
-    if (invalidItem) return alert(`資料格式錯誤！請檢查此行：\n${invalidItem.email || "(空信箱)"} , ${invalidItem.name || "(空暱稱)"}\n\n正確格式：信箱, 暱稱`);
-
-    setIsBatchProcessing(true); setBatchResults([]);
-    const resultsReport = ["信箱\t暱稱\t魔法連結或狀態"]; 
+    const parsedList = lines.map(line => { const parts = line.split(/[,\t]+/).map(p => p.trim()); return { email: parts[0] || "", name: parts[1] || "" }; });
+    const invalidItem = parsedList.find(p => !p.email.includes('@') || !p.name); if (invalidItem) return alert(`資料格式錯誤！請檢查此行：\n${invalidItem.email || "(空信箱)"} , ${invalidItem.name || "(空暱稱)"}\n\n正確格式：信箱, 暱稱`);
+    setIsBatchProcessing(true); setBatchResults([]); const resultsReport = ["信箱\t暱稱\t魔法連結或狀態"]; 
     for (let i = 0; i < parsedList.length; i++) {
       const p = parsedList[i]; setBatchProgress({ current: i + 1, total: parsedList.length });
       try {
         const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { p_event_id: issueEventId, p_summoner_name: p.name, p_email: p.email });
         if (error) throw error;
-        if (magicToken) resultsReport.push(`${p.email}\t${p.name}\t${window.location.origin}/claim?token=${magicToken}`);
-        else resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動派發成功`);
+        if (magicToken) resultsReport.push(`${p.email}\t${p.name}\t${window.location.origin}/claim?token=${magicToken}`); else resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動補發/派發成功`);
       } catch (err: any) { resultsReport.push(`${p.email}\t${p.name}\t[失敗] ${err.message}`); }
     }
     setBatchResults(resultsReport); setIsBatchProcessing(false); fetchDashboardData(); 
@@ -302,7 +257,6 @@ export default function AdminDashboardPage() {
 
       <main className="p-4 md:p-8 max-w-6xl mx-auto relative z-10">
         
-        {/* ================= 戰情室儀表板 ================= */}
         {activeTab === "dashboard" && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             <div className="flex justify-between items-end">
@@ -318,13 +272,12 @@ export default function AdminDashboardPage() {
             {eventsData.map((ev) => (
               <div key={ev.id} className="glass-card rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative">
                 
-                {/* 動作按鈕群組：修改、派發、刪除 */}
                 <div className="absolute top-4 right-4 z-30 flex gap-2">
                   <button onClick={() => openEditModal(ev)} className="p-2 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-xl shadow-lg border border-emerald-400/50 flex gap-2 transition-all active:scale-95">
-                    <Pencil className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">修改活動</span>
+                    <Pencil className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">修改活動與票券</span>
                   </button>
                   <button onClick={() => openIssueModal(ev.id, ev.name)} className="p-2 bg-indigo-600/90 hover:bg-indigo-500 text-white rounded-xl shadow-lg border border-indigo-400/50 flex gap-2 transition-all active:scale-95">
-                    <UserPlus className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">發送票券 / 產生連結</span>
+                    <UserPlus className="w-5 h-5" /><span className="text-sm font-bold hidden md:inline">發送 / 產生連結</span>
                   </button>
                   <button onClick={() => handleDeleteEvent(ev.id, ev.name)} className="p-2 bg-rose-600/90 hover:bg-rose-500 text-white rounded-xl shadow-lg border border-rose-400/50 flex gap-2 transition-all active:scale-95">
                     <Trash2 className="w-5 h-5" />
@@ -339,7 +292,7 @@ export default function AdminDashboardPage() {
                 )}
                 
                 <div className={`p-6 ${ev.image_url ? '-mt-16 relative z-20' : ''}`}>
-                  <h3 className="text-3xl font-extrabold text-white mb-2 drop-shadow-lg pr-[300px]">{ev.name}</h3>
+                  <h3 className="text-3xl font-extrabold text-white mb-2 drop-shadow-lg pr-[320px]">{ev.name}</h3>
                   <p className="text-emerald-400 font-mono text-sm mb-6 flex items-center gap-2"><Calendar className="w-4 h-4" /> {ev.event_date}</p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -369,7 +322,6 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* ================= 建立活動分頁 ================= */}
         {activeTab === "create" && (
            <form onSubmit={handleSubmitEvent} className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
              <div className="glass-card p-6 md:p-8 rounded-3xl border border-slate-800">
@@ -389,15 +341,14 @@ export default function AdminDashboardPage() {
 
              <div className="glass-card p-6 md:p-8 rounded-3xl border border-slate-800">
                <div className="flex justify-between items-center mb-6">
-                 <h2 className="text-xl font-bold text-white flex gap-2"><Ticket className="w-6 h-6 text-yellow-500" /> 2. 票券設定 (依實際派發產生數量)</h2>
+                 <h2 className="text-xl font-bold text-white flex gap-2"><Ticket className="w-6 h-6 text-yellow-500" /> 2. 票券設定</h2>
                  <button type="button" onClick={handleAddTicket} className="text-sm font-bold text-yellow-400 flex gap-1 border border-yellow-500/30 px-3 py-1.5 rounded-lg bg-yellow-500/10"><PlusCircle className="w-4 h-4" /> 新增種類</button>
                </div>
                <div className="space-y-4">
                  {newTickets.map((ticket, index) => (
                    <div key={index} className="flex flex-col md:flex-row gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
-                     {/* ⭐️ 已將總發放數量移除，重新分配寬度 */}
-                     <div className="w-full md:w-7/12"><label className="block text-xs text-slate-500 mb-1">票券名稱</label><input type="text" required value={ticket.title} onChange={e => handleTicketChange(index, 'title', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none" /></div>
-                     <div className="w-full md:w-4/12"><label className="block text-xs text-slate-500 mb-1">種類</label><select value={ticket.type} onChange={e => handleTicketChange(index, 'type', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"><option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option></select></div>
+                     <div className="w-full md:w-8/12"><label className="block text-xs text-slate-500 mb-1">票券名稱</label><input type="text" required value={ticket.title} onChange={e => handleTicketChange(index, 'title', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none" /></div>
+                     <div className="w-full md:w-3/12"><label className="block text-xs text-slate-500 mb-1">種類</label><select value={ticket.type} onChange={e => handleTicketChange(index, 'type', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"><option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option></select></div>
                      <div className="w-full md:w-1/12 flex justify-end md:justify-center md:pt-5"><button type="button" onClick={() => handleRemoveTicket(index)} disabled={newTickets.length === 1} className="p-2 text-slate-500 hover:text-rose-500 disabled:opacity-30"><Trash2 className="w-5 h-5" /></button></div>
                    </div>
                  ))}
@@ -413,19 +364,22 @@ export default function AdminDashboardPage() {
         )}
       </main>
 
-      {/* ================= 修改活動專屬 Modal ================= */}
+      {/* ================= ⭐️ 升級版：修改活動與熱更新票券 Modal ================= */}
       {editModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-lg rounded-3xl p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-3xl p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button onClick={() => setEditModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1"><X className="w-6 h-6" /></button>
             
             <div className="mb-6">
-              <h3 className="text-2xl font-bold text-white flex items-center gap-2 mb-1"><Pencil className="w-6 h-6 text-emerald-400" /> 修改活動基本資訊</h3>
+              <h3 className="text-2xl font-bold text-white flex items-center gap-2 mb-1"><Pencil className="w-6 h-6 text-emerald-400" /> 修改活動與票券設定</h3>
+              <p className="text-slate-400 text-sm">變更名稱會即時同步至玩家手機。</p>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="space-y-4">
-              <div><label className="block text-xs font-bold text-slate-400 mb-1">活動標題</label><input type="text" required value={editEventName} onChange={e => setEditEventName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none" /></div>
-              <div><label className="block text-xs font-bold text-slate-400 mb-1">活動日期</label><input type="date" required value={editEventDate} onChange={e => setEditEventDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark]" /></div>
+            <form onSubmit={handleEditSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label className="block text-xs font-bold text-slate-400 mb-1">活動標題</label><input type="text" required value={editEventName} onChange={e => setEditEventName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none" /></div>
+                <div><label className="block text-xs font-bold text-slate-400 mb-1">活動日期</label><input type="date" required value={editEventDate} onChange={e => setEditEventDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-emerald-500 focus:outline-none [color-scheme:dark]" /></div>
+              </div>
               
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">更換主視覺 (若不更換請留空)</label>
@@ -435,9 +389,50 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center gap-2 py-4 mt-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
-                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 儲存修改
+              {/* 票券熱更新編輯區 */}
+              <div className="border-t border-slate-800 pt-6">
+                 <div className="flex justify-between items-center mb-4">
+                   <h4 className="text-lg font-bold text-white flex items-center gap-2"><Ticket className="w-5 h-5 text-yellow-500" /> 編輯既有/新增票券</h4>
+                   <button type="button" onClick={handleAddEditTicket} className="text-sm font-bold text-yellow-400 flex gap-1 border border-yellow-500/30 px-3 py-1.5 rounded-lg bg-yellow-500/10"><PlusCircle className="w-4 h-4" /> 臨時加碼票券</button>
+                 </div>
+                 
+                 <div className="space-y-3">
+                   {editTickets.map((ticket, index) => (
+                     <div key={index} className="flex flex-col md:flex-row gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800 relative">
+                       {ticket.id && <span className="absolute -top-2 -right-2 bg-emerald-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full">線上同步中</span>}
+                       <div className="w-full md:w-8/12">
+                         <label className="block text-[10px] text-slate-500 mb-1">名稱</label>
+                         <input type="text" required value={ticket.title} onChange={e => handleEditTicketChange(index, 'title', e.target.value)} className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white focus:outline-none ${ticket.id ? 'border-emerald-500/30 focus:border-emerald-500' : 'border-yellow-500/30 focus:border-yellow-500'}`} />
+                       </div>
+                       <div className="w-full md:w-4/12">
+                         <label className="block text-[10px] text-slate-500 mb-1">種類</label>
+                         <select value={ticket.type} onChange={e => handleEditTicketChange(index, 'type', e.target.value)} className={`w-full bg-slate-900 border rounded-lg px-3 py-2 text-white focus:outline-none ${ticket.id ? 'border-emerald-500/30 focus:border-emerald-500' : 'border-yellow-500/30 focus:border-yellow-500'}`}>
+                           <option value="admission">入場 (Admission)</option><option value="food">餐飲 (Food)</option><option value="game">遊戲 (Game)</option><option value="photo">拍照 (Photo)</option><option value="gift">贈品 (Gift)</option>
+                         </select>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+              </div>
+
+              {/* 儲存按鈕 */}
+              <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center gap-2 py-4 mt-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 儲存活動與票券變更
               </button>
+
+              {/* ⭐️ 一鍵全服補發按鈕 (置於底部) */}
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <button 
+                  type="button" 
+                  onClick={handleGlobalAirdrop} 
+                  disabled={isAirdropping}
+                  className="w-full flex justify-center items-center gap-2 py-3 bg-slate-800 hover:bg-yellow-600/20 hover:text-yellow-400 hover:border-yellow-500/50 text-slate-400 border border-slate-700 rounded-xl transition-all font-bold"
+                >
+                  {isAirdropping ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />} 
+                  {isAirdropping ? "正在執行全服空投..." : "⚡ 儲存後若有新加碼，點此一鍵補發給所有玩家"}
+                </button>
+              </div>
+
             </form>
           </div>
         </div>
@@ -489,7 +484,7 @@ export default function AdminDashboardPage() {
               <div className="space-y-4 animate-in fade-in">
                 {batchResults.length === 0 ? (
                   <>
-                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。</div>
+                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。如果臨時加碼了新票券，再次匯入同份名單即可為他們補發新票！</div>
                     <div><textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} placeholder={`player1@gmail.com, 神之手\nplayer2@yahoo.com.tw, 龍騎士`} className="w-full h-48 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none whitespace-pre" /></div>
                     <button onClick={handleBatchIssue} disabled={isBatchProcessing} className="w-full flex justify-center items-center gap-2 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
                       {isBatchProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />} {isBatchProcessing ? '批次派發中，請勿關閉...' : '開始批次派發'}
