@@ -113,7 +113,7 @@ export default function PlayerTicketWallet() {
     return () => clearInterval(timer);
   }, [selectedTicket, isJustRedeemed]);
 
-  // ⭐️ 核心重構：絕對穩定的遞迴式輪詢 (Recursive Polling)
+  // 遞迴式輪詢 (Recursive Polling)
   useEffect(() => {
     let isMounted = true;
     let timeoutId: NodeJS.Timeout;
@@ -134,13 +134,7 @@ export default function PlayerTicketWallet() {
           setIsJustRedeemed(true);
           fetchDynamicData(true); // 背景靜默重撈資料，更新底下的票券列表
           
-          // 3秒後自動關閉派對動畫與視窗
-          setTimeout(() => {
-            if (isMounted) {
-              setSelectedTicket(null);
-              setIsJustRedeemed(false);
-            }
-          }, 3000);
+          // ⭐️ 移除了自動關閉的 setTimeout，將控制權交還給使用者
           
           return; // 成功核銷，終止輪詢
         }
@@ -154,17 +148,21 @@ export default function PlayerTicketWallet() {
       }
     };
 
-    // 當開啟票券且尚未核銷時，啟動監測
     if (selectedTicket && !isJustRedeemed) {
       checkRedemptionStatus();
     }
 
-    // 元件卸載或關閉視窗時的清理機制
     return () => {
       isMounted = false;
       clearTimeout(timeoutId);
     };
   }, [selectedTicket, isJustRedeemed, fetchDynamicData]);
+
+  // ⭐️ 核心：統一處理 Modal 關閉的狀態淨空
+  const handleCloseModal = () => {
+    setSelectedTicket(null);
+    setIsJustRedeemed(false);
+  };
 
   const getIcon = (type: string, className = "w-6 h-6") => {
     switch (type) {
@@ -235,7 +233,7 @@ export default function PlayerTicketWallet() {
       {/* ================= Header 區塊 ================= */}
       <header className="text-center mb-6 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
         
-        {/* ⭐️ 動態活動主視覺橫幅 (改為 1600x400，即 4:1 比例裁切) */}
+        {/* 動態活動主視覺橫幅 (改為 1600x400，即 4:1 比例裁切) */}
         {activeEvent?.imageUrl && (
           <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(234,179,8,0.2)] border border-yellow-500/20">
             <img 
@@ -296,23 +294,31 @@ export default function PlayerTicketWallet() {
               ${isJustRedeemed ? 'bg-emerald-500/30' : 'bg-yellow-500/20'}
             `} />
             
-            {/* 只有還沒核銷時，才可以手動關閉 */}
-            {!isJustRedeemed && (
-              <button onClick={() => setSelectedTicket(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors z-10"><X className="w-6 h-6" /></button>
-            )}
+            {/* ⭐️ 無論是否核銷，右上角都保留關閉 X 按鈕 */}
+            <button onClick={handleCloseModal} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors z-10">
+              <X className="w-6 h-6" />
+            </button>
 
             {isJustRedeemed ? (
-              // ⭐️ 核銷成功：派對慶祝畫面
+              // ⭐️ 核銷成功：派對慶祝畫面 (已移除自動關閉提示，並新增明顯的關閉按鈕)
               <div className="flex flex-col items-center justify-center py-8 animate-in zoom-in-95 duration-500 z-10 w-full text-center">
                 <PartyPopper className="w-24 h-24 text-emerald-400 mb-6 drop-shadow-[0_0_20px_rgba(52,211,153,0.8)] animate-bounce" />
                 <h2 className="text-3xl font-black text-white mb-2 tracking-widest drop-shadow-md">兌換成功</h2>
                 <p className="text-emerald-200 font-bold mb-4">{selectedTicket.title}</p>
-                <div className="bg-emerald-900/50 border border-emerald-500/30 rounded-xl px-4 py-2 mt-2">
-                  <p className="text-emerald-100 text-sm">請依照工作人員指示領取物品<br/>視窗將自動關閉</p>
+                <div className="bg-emerald-900/50 border border-emerald-500/30 rounded-xl px-4 py-3 mt-2 mb-6 w-full">
+                  <p className="text-emerald-100 text-sm">請依照工作人員指示領取物品</p>
                 </div>
+                
+                {/* ⭐️ 底部新增大型關閉按鈕，方便手機單手操作 */}
+                <button 
+                  onClick={handleCloseModal}
+                  className="w-full py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-bold rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all active:scale-95"
+                >
+                  關閉視窗
+                </button>
               </div>
             ) : (
-              // ⭐️ 未核銷：顯示高對比度 QR Code
+              // 未核銷：顯示高對比度 QR Code
               <>
                 <div className="text-center mb-6 mt-4 relative z-10">
                   <div className="mx-auto w-16 h-16 glass-card text-yellow-400 rounded-2xl flex items-center justify-center mb-4 epic-glow">{getIcon(selectedTicket.type, "w-8 h-8")}</div>
