@@ -4,27 +4,35 @@
 import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ShieldCheck, Mail, AlertTriangle, Loader2, Ticket } from "lucide-react";
-import { eventConfig } from "@/config/event";
 import { supabase } from "@/lib/supabase";
 
 function ClaimGateway() {
   const searchParams = useSearchParams();
-  const router = useRouter(); // ⭐️ 引入 router 以便跳轉
+  const router = useRouter(); 
   const token = searchParams.get("token");
 
   const [isLoading, setIsLoading] = useState(true);
   const [expectedEmail, setExpectedEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
+  
+  // ⭐️ 新增：偵測玩家目前的瀏覽器是否已經處於 Google 登入狀態
+  const [isAlreadyLoggedIn, setIsAlreadyLoggedIn] = useState(false);
 
   useEffect(() => {
     const verifyToken = async () => {
+      // 1. 優先檢查是否已經有登入的 Session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setIsAlreadyLoggedIn(true);
+      }
+
       if (!token) {
         setError("無效的票券連結！請從主辦單位發送的官方信件/簡訊中點擊連結。");
         setIsLoading(false);
         return;
       }
 
-      // 向資料庫查詢這張票是發給哪個 Email 的
+      // 2. 驗證魔法連結 Token 狀態
       const { data, error } = await supabase
         .from('players')
         .select('email')
@@ -32,7 +40,7 @@ function ClaimGateway() {
         .single();
 
       if (error || !data) {
-        // ⭐️ Token 找不到，代表已被銷毀(已綁定)，或是假 Token
+        // 找不到 token，代表已被銷毀(已綁定)，或是假 Token
         setError("此魔法連結無效，或者您的票券已完成綁定。");
       } else {
         // 遮蔽 Email 保護隱私 (ex: sum********@gmail.com)
@@ -86,26 +94,46 @@ function ClaimGateway() {
           </p>
 
           {error ? (
-            // ⭐️ UX 升級：給予迷路的玩家明確的引導按鈕
-            <div className="flex flex-col w-full gap-4">
+            // ================= 發生錯誤 (Token 失效/已綁定) 的動態引導 UI =================
+            <div className="flex flex-col w-full gap-4 items-center">
               <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3 w-full">
                 <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
                 <p className="text-rose-400 text-sm text-left">{error}</p>
               </div>
               
-              <button 
-                onClick={() => router.push('/')}
-                className="w-full relative group overflow-hidden rounded-xl p-[1px] mt-2"
-              >
-                <span className="absolute inset-0 bg-gradient-to-r from-yellow-500 to-amber-600 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
-                <div className="relative bg-slate-900 px-4 py-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 group-hover:bg-slate-800 group-active:scale-[0.98]">
-                  <Ticket className="w-5 h-5 text-yellow-400" />
-                  <span className="font-bold text-yellow-400 tracking-wide">直接前往我的數位票夾</span>
-                </div>
-              </button>
+              {isAlreadyLoggedIn ? (
+                // ⭐️ 情境 A：玩家仍處於登入狀態 -> 提供按鈕直接去票夾
+                <button 
+                  onClick={() => router.push('/')}
+                  className="w-full relative group overflow-hidden rounded-xl p-[1px] mt-2"
+                >
+                  <span className="absolute inset-0 bg-gradient-to-r from-yellow-500 to-amber-600 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="relative bg-slate-900 px-4 py-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 group-hover:bg-slate-800 group-active:scale-[0.98]">
+                    <Ticket className="w-5 h-5 text-yellow-400" />
+                    <span className="font-bold text-yellow-400 tracking-wide">直接前往我的數位票夾</span>
+                  </div>
+                </button>
+              ) : (
+                // ⭐️ 情境 B：玩家已登出 (例如用 LINE 開啟) -> 提供 Google 重新登入按鈕
+                <>
+                  <p className="text-slate-400 text-sm mt-2 w-full text-center">如果您已經綁定過，請直接登入查看：</p>
+                  <button onClick={handleGoogleLogin} className="w-full relative group overflow-hidden rounded-xl p-[1px]">
+                    <span className="absolute inset-0 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
+                    <div className="relative bg-slate-950 px-4 py-4 rounded-xl flex items-center justify-center gap-3 transition-all duration-300 group-hover:bg-slate-900 group-active:scale-[0.98]">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                      </svg>
+                      <span className="font-bold text-white tracking-wide">Google 帳號登入與查看</span>
+                    </div>
+                  </button>
+                </>
+              )}
             </div>
           ) : (
-            // 正常綁定流程
+            // ================= 正常綁定流程 (Token 有效且尚未綁定) =================
             <>
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 w-full mb-8 flex items-center justify-center gap-3">
                 <Mail className="w-5 h-5 text-slate-500" />
@@ -138,7 +166,7 @@ export default function ClaimPage() {
       <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
       <header className="text-center mb-8 relative z-10">
         <h2 className="text-xl font-bold bg-gradient-to-r from-yellow-300 to-yellow-500 text-transparent bg-clip-text drop-shadow-md">
-          {eventConfig.title}
+          12周年 競逐巔峰 極速派對
         </h2>
       </header>
       <Suspense fallback={<Loader2 className="w-8 h-8 text-yellow-500 animate-spin mt-20" />}>
