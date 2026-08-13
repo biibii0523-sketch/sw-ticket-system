@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { 
-  ScanLine, LockKeyhole, CheckCircle2, XCircle, Loader2, LogOut, User, Ticket, MapPin
+  ScanLine, LockKeyhole, CheckCircle2, XCircle, Loader2, LogOut, User, Ticket, MapPin, KeyRound, Fingerprint
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -21,20 +21,26 @@ interface ActiveEvent {
   name: string;
 }
 
+// ⭐️ 動態生成 20 組允許登入的關主帳號白名單 (com2us ~ com21us)
+const ALLOWED_STAFF_ACCOUNTS = Array.from({ length: 20 }, (_, i) => `com${i + 2}us`);
+
 export default function StaffScannerPage() {
   const [isFetchingEvents, setIsFetchingEvents] = useState(true);
   const [activeEvents, setActiveEvents] = useState<ActiveEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
+  
+  // ⭐️ 登入狀態管理更新
+  const [staffAccount, setStaffAccount] = useState("");
+  const [staffPassword, setStaffPassword] = useState("");
+  const [loginError, setLoginError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [pinCode, setPinCode] = useState("");
-  const [loginError, setLoginError] = useState(false);
-
   const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
   const [resultData, setResultData] = useState<ScanResultData | null>(null);
 
-  // ⭐️ 核心防護：使用環境變數的密碼 (預設 fallback 為開發環境用)
-  const CORRECT_STAFF_PIN = process.env.NEXT_PUBLIC_STAFF_PIN || "8888";
+  // ⭐️ 核心防護：從環境變數讀取密碼，若未設定則使用預設值
+  const CORRECT_STAFF_PASSWORD = process.env.NEXT_PUBLIC_STAFF_PASSWORD || "com2usno1";
 
   useEffect(() => {
     const fetchActiveEvents = async () => {
@@ -59,12 +65,23 @@ export default function StaffScannerPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinCode === CORRECT_STAFF_PIN && selectedEventId) {
+    setLoginError(false);
+    setErrorMessage("");
+
+    // 1. 檢查帳號是否在白名單內 (防呆：打錯字)
+    if (!ALLOWED_STAFF_ACCOUNTS.includes(staffAccount)) {
+      setLoginError(true);
+      setErrorMessage("查無此關主帳號，請確認拼寫");
+      return;
+    }
+
+    // 2. 檢查密碼與活動是否選擇
+    if (staffPassword === CORRECT_STAFF_PASSWORD && selectedEventId) {
       setIsLoggedIn(true);
-      setLoginError(false);
     } else {
       setLoginError(true);
-      setPinCode("");
+      setErrorMessage("安全密碼錯誤，請重新輸入");
+      setStaffPassword(""); // 只清空密碼，保留帳號不用重打
     }
   };
 
@@ -81,9 +98,14 @@ export default function StaffScannerPage() {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(ticketId)) throw new Error(`無效的票券格式`);
 
+      // ⭐️ 掃描成功時，將手動輸入的關主帳號寫入資料庫作為追蹤
       const { data, error } = await supabase
         .from('player_tickets')
-        .update({ is_redeemed: true, redeemed_at: new Date().toISOString() })
+        .update({ 
+          is_redeemed: true, 
+          redeemed_at: new Date().toISOString(),
+          redeemed_by: staffAccount 
+        })
         .eq('id', ticketId)
         .eq('is_redeemed', false)
         .select(`
@@ -100,7 +122,8 @@ export default function StaffScannerPage() {
       if (!data) throw new Error("此票券已兌換過，或非有效票券！");
 
       if ((data.ticket_templates as any).event_id !== selectedEventId) {
-        await supabase.from('player_tickets').update({ is_redeemed: false, redeemed_at: null }).eq('id', ticketId);
+        // 如果場次不對，將狀態復原
+        await supabase.from('player_tickets').update({ is_redeemed: false, redeemed_at: null, redeemed_by: null }).eq('id', ticketId);
         throw new Error("警告！這張票券不屬於目前的活動場次。");
       }
 
@@ -141,22 +164,50 @@ export default function StaffScannerPage() {
           ) : (
             <form onSubmit={handleLogin} className="w-full flex flex-col gap-4 mt-2">
               <div className="w-full">
-                <label className="block text-xs text-slate-400 mb-2 font-bold tracking-widest uppercase">1. 選擇所在活動場次</label>
+                <label className="block text-[10px] text-slate-400 mb-1.5 font-bold tracking-widest uppercase">1. 選擇活動場次</label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
-                  <select value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:border-indigo-500 focus:outline-none appearance-none" required>
+                  <select value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white text-sm focus:border-indigo-500 focus:outline-none appearance-none" required>
                     {activeEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
                   </select>
                 </div>
               </div>
 
-              <div className="w-full mt-2">
-                <label className="block text-xs text-slate-400 mb-2 font-bold tracking-widest uppercase">2. 輸入安全授權碼</label>
-                <input type="password" pattern="[0-9]*" inputMode="numeric" maxLength={4} value={pinCode} onChange={(e) => setPinCode(e.target.value)} className={`w-full bg-slate-950/50 border-2 rounded-xl py-3 text-center text-2xl font-mono tracking-[1em] text-white focus:outline-none transition-all ${loginError ? 'border-rose-500 text-rose-500' : 'border-slate-700 focus:border-yellow-500'}`} placeholder="••••" />
+              {/* ⭐️ 新增：關主帳號手動輸入框 (帶自動小寫防呆) */}
+              <div className="w-full">
+                <label className="block text-[10px] text-slate-400 mb-1.5 font-bold tracking-widest uppercase">2. 關主登入帳號</label>
+                <div className="relative">
+                  <Fingerprint className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="例如: com2us"
+                    value={staffAccount}
+                    onChange={(e) => setStaffAccount(e.target.value.toLowerCase().trim())} // 自動轉小寫去空白
+                    className={`w-full bg-slate-900 border rounded-xl pl-10 pr-4 py-3 text-white text-sm focus:outline-none transition-colors ${loginError && errorMessage.includes('帳號') ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-emerald-500'}`}
+                  />
+                </div>
+              </div>
+
+              {/* ⭐️ 新增：高質感密碼輸入框 */}
+              <div className="w-full">
+                <label className="block text-[10px] text-slate-400 mb-1.5 font-bold tracking-widest uppercase">3. 安全授權密碼</label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-yellow-500" />
+                  <input 
+                    type="password" 
+                    required
+                    placeholder="••••••••"
+                    value={staffPassword} 
+                    onChange={(e) => setStaffPassword(e.target.value.trim())} 
+                    className={`w-full bg-slate-950/50 border rounded-xl pl-10 pr-4 py-3 text-white text-sm tracking-[0.3em] focus:outline-none transition-all ${loginError && errorMessage.includes('密碼') ? 'border-rose-500' : 'border-slate-700 focus:border-yellow-500'}`} 
+                  />
+                </div>
               </div>
               
-              {loginError && <p className="text-rose-500 text-xs text-center animate-pulse">授權碼錯誤，請重新輸入</p>}
-              <button type="submit" className="w-full py-4 mt-4 rounded-xl font-bold text-slate-900 bg-gradient-to-r from-yellow-400 to-yellow-600 hover:to-yellow-500 active:scale-95 transition-all shadow-[0_0_15px_rgba(234,179,8,0.4)]">
+              {loginError && <p className="text-rose-500 text-xs text-center font-bold animate-pulse mt-1">{errorMessage}</p>}
+              
+              <button type="submit" className="w-full py-4 mt-2 rounded-xl font-bold text-slate-900 bg-gradient-to-r from-yellow-400 to-yellow-600 hover:to-yellow-500 active:scale-95 transition-all shadow-[0_0_15px_rgba(234,179,8,0.4)]">
                 連線系統 (CONNECT)
               </button>
             </form>
@@ -169,13 +220,15 @@ export default function StaffScannerPage() {
   return (
     <div className="flex flex-col h-[100dvh] bg-black relative overflow-hidden">
       <header className="absolute top-0 left-0 w-full p-4 z-20 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent pt-safe">
-        <div className="flex flex-col">
-          <span className="text-indigo-400 text-[10px] font-black tracking-widest uppercase border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 rounded w-fit mb-1">
-            當前活動：{currentEventName}
+        <div className="flex flex-col gap-1">
+          <span className="text-indigo-400 text-[10px] font-black tracking-widest uppercase border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 rounded w-fit">
+            活動：{currentEventName}
           </span>
-          <span className="text-white font-bold drop-shadow-md">核銷掃描終端</span>
+          <span className="text-emerald-400 text-[10px] font-black tracking-widest uppercase border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 rounded w-fit">
+            身分：{staffAccount}
+          </span>
         </div>
-        <button onClick={() => setIsLoggedIn(false)} className="p-2 bg-slate-900/80 rounded-full border border-slate-700 text-slate-400 hover:text-white backdrop-blur-md">
+        <button onClick={() => setIsLoggedIn(false)} className="p-2 bg-slate-900/80 rounded-full border border-slate-700 text-slate-400 hover:text-white backdrop-blur-md shadow-lg">
           <LogOut className="w-5 h-5" />
         </button>
       </header>
