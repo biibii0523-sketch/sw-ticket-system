@@ -5,7 +5,7 @@ import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
 
-// ⭐️ 核心修改：設定對外分享時的標題、描述與 Open Graph 資訊
+// ⭐️ 核心修改：全面修正品牌名稱為 Com2uS (大寫S)
 export const metadata: Metadata = {
   title: 'Com2uS ｜數位票卷系統',
   description: '專屬遊戲玩家的線下活動數位兌換憑證',
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Com2us ｜數位票卷系統',
+    title: 'Com2uS ｜數位票卷系統',
     description: '專屬遊戲玩家的線下活動數位兌換憑證',
   },
 }
