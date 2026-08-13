@@ -190,7 +190,7 @@ export default function PlayerTicketWallet() {
         </button>
       </div>
 
-      {/* ================= 場次切換 Tabs (保留原樣) ================= */}
+      {/* ================= 場次切換 Tabs ================= */}
       {eventGroups.length > 1 && (
         <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-2 mb-5 scrollbar-hide snap-x">
           {eventGroups.map((group) => (
@@ -210,30 +210,28 @@ export default function PlayerTicketWallet() {
       {/* ================= Header 區塊 ================= */}
       <header className="text-center mb-8 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
         
-        {/* ⭐️ 動態活動主視覺橫幅 (乾淨無標籤版) */}
+        {/* ⭐️ 動態活動主視覺橫幅 (移除圓角，改為銳利邊緣保留完整 Logo，保留陰影與邊框) */}
         {activeEvent?.imageUrl && (
-          <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.5)] border border-white/10 bg-slate-900 flex items-center justify-center group">
+          <div className="w-full relative mb-5 overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.5)] border border-white/10 bg-slate-900 flex items-center justify-center group">
             <img src={activeEvent.imageUrl} alt={activeEvent.eventName} className="w-full aspect-[4/1] object-cover object-center" />
             <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-[#0a0f1c] to-transparent pointer-events-none opacity-80" />
-            {/* 標籤已俐落移除 */}
           </div>
         )}
         
-        {/* 召喚師暱稱底框 (保留原樣) */}
+        {/* 召喚師暱稱底框 */}
         <div className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-b from-white/[0.08] to-transparent backdrop-blur-xl rounded-full w-fit mx-auto border border-white/[0.12] border-t-white/[0.2] shadow-lg">
           <UserCircle2 className="w-4 h-4 text-emerald-400" />
           <p className="text-slate-200 text-sm tracking-wide">召喚師：<span className="text-white font-bold drop-shadow-md">{playerInfo?.summonerName}</span></p>
         </div>
       </header>
 
-      {/* ================= ⭐️ 票券列表 (新增底部螢光透視質感) ================= */}
+      {/* ================= 票券列表 (保留完美的底部橘金微光) ================= */}
       <div key={activeEventId} className="grid grid-cols-2 gap-4 w-full max-w-md pb-24">
         {activeEvent?.tickets.map((ticket, index) => (
           <button 
             key={ticket.id} 
             onClick={() => !ticket.isRedeemed && setSelectedTicket(ticket)} 
             disabled={ticket.isRedeemed} 
-            // ⭐️ 核心渲染修改：bg-gradient 漸層到底部加上 to-yellow-500/[0.06]，並用 border-b 強化底部反射線條
             className={`relative overflow-hidden flex flex-col items-center justify-center p-6 rounded-[20px] transition-all duration-300 group animate-in zoom-in-95 fade-in
               ${ticket.isRedeemed 
                 ? "bg-slate-900/40 border border-slate-800/50 opacity-50 cursor-not-allowed grayscale shadow-none" 
