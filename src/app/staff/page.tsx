@@ -16,7 +16,6 @@ interface ScanResultData {
   message: string;
 }
 
-// 定義活動清單型別
 interface ActiveEvent {
   id: string;
   name: string;
@@ -34,7 +33,9 @@ export default function StaffScannerPage() {
   const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
   const [resultData, setResultData] = useState<ScanResultData | null>(null);
 
-  // ⭐️ 載入時，抓取目前所有建立好的活動供工作人員選擇
+  // ⭐️ 核心防護：使用環境變數的密碼 (預設 fallback 為開發環境用)
+  const CORRECT_STAFF_PIN = process.env.NEXT_PUBLIC_STAFF_PIN || "8888";
+
   useEffect(() => {
     const fetchActiveEvents = async () => {
       try {
@@ -46,7 +47,7 @@ export default function StaffScannerPage() {
 
         if (error) throw error;
         setActiveEvents(data || []);
-        if (data && data.length > 0) setSelectedEventId(data[0].id); // 預設選擇第一個
+        if (data && data.length > 0) setSelectedEventId(data[0].id);
       } catch (err) {
         console.error("無法取得活動列表", err);
       } finally {
@@ -58,7 +59,7 @@ export default function StaffScannerPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinCode === "8888" && selectedEventId) {
+    if (pinCode === CORRECT_STAFF_PIN && selectedEventId) {
       setIsLoggedIn(true);
       setLoginError(false);
     } else {
@@ -80,7 +81,6 @@ export default function StaffScannerPage() {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(ticketId)) throw new Error(`無效的票券格式`);
 
-      // 核銷邏輯：同時檢查這張票是否屬於「目前工作人員選擇的活動」
       const { data, error } = await supabase
         .from('player_tickets')
         .update({ is_redeemed: true, redeemed_at: new Date().toISOString() })
@@ -99,9 +99,7 @@ export default function StaffScannerPage() {
       if (error) throw new Error("資料庫拒絕存取或更新失敗");
       if (!data) throw new Error("此票券已兌換過，或非有效票券！");
 
-      // ⭐️ 核心防呆：防止掃到香港場的票 (Cross-event protection)
       if ((data.ticket_templates as any).event_id !== selectedEventId) {
-        // 如果發現掃錯場，緊急把票券狀態改回未核銷 (Rollback)
         await supabase.from('player_tickets').update({ is_redeemed: false, redeemed_at: null }).eq('id', ticketId);
         throw new Error("警告！這張票券不屬於目前的活動場次。");
       }
@@ -125,10 +123,8 @@ export default function StaffScannerPage() {
     setResultData(null);
   };
 
-  // 取得目前選擇的活動名稱
   const currentEventName = activeEvents.find(e => e.id === selectedEventId)?.name || "未知活動";
 
-  // ================= UI 1: 登入鎖屏 =================
   if (!isLoggedIn) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 relative overflow-hidden bg-slate-950">
@@ -144,35 +140,19 @@ export default function StaffScannerPage() {
             <div className="flex items-center gap-2 text-slate-400 mb-6"><Loader2 className="w-4 h-4 animate-spin"/> 載入活動清單中...</div>
           ) : (
             <form onSubmit={handleLogin} className="w-full flex flex-col gap-4 mt-2">
-              
-              {/* ⭐️ 動態活動選擇器 */}
               <div className="w-full">
                 <label className="block text-xs text-slate-400 mb-2 font-bold tracking-widest uppercase">1. 選擇所在活動場次</label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
-                  <select 
-                    value={selectedEventId}
-                    onChange={(e) => setSelectedEventId(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:border-indigo-500 focus:outline-none appearance-none"
-                    required
-                  >
-                    {activeEvents.map(ev => (
-                      <option key={ev.id} value={ev.id}>{ev.name}</option>
-                    ))}
+                  <select value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:border-indigo-500 focus:outline-none appearance-none" required>
+                    {activeEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
                   </select>
                 </div>
               </div>
 
               <div className="w-full mt-2">
                 <label className="block text-xs text-slate-400 mb-2 font-bold tracking-widest uppercase">2. 輸入安全授權碼</label>
-                <input
-                  type="password" pattern="[0-9]*" inputMode="numeric" maxLength={4}
-                  value={pinCode} onChange={(e) => setPinCode(e.target.value)}
-                  className={`w-full bg-slate-950/50 border-2 rounded-xl py-3 text-center text-2xl font-mono tracking-[1em] text-white focus:outline-none transition-all
-                    ${loginError ? 'border-rose-500 text-rose-500' : 'border-slate-700 focus:border-yellow-500'}
-                  `}
-                  placeholder="••••"
-                />
+                <input type="password" pattern="[0-9]*" inputMode="numeric" maxLength={4} value={pinCode} onChange={(e) => setPinCode(e.target.value)} className={`w-full bg-slate-950/50 border-2 rounded-xl py-3 text-center text-2xl font-mono tracking-[1em] text-white focus:outline-none transition-all ${loginError ? 'border-rose-500 text-rose-500' : 'border-slate-700 focus:border-yellow-500'}`} placeholder="••••" />
               </div>
               
               {loginError && <p className="text-rose-500 text-xs text-center animate-pulse">授權碼錯誤，請重新輸入</p>}
@@ -186,12 +166,10 @@ export default function StaffScannerPage() {
     );
   }
 
-  // ================= UI 2: 掃描介面 =================
   return (
     <div className="flex flex-col h-[100dvh] bg-black relative overflow-hidden">
       <header className="absolute top-0 left-0 w-full p-4 z-20 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent pt-safe">
         <div className="flex flex-col">
-          {/* ⭐️ 顯示目前工作人員正在哪場活動 */}
           <span className="text-indigo-400 text-[10px] font-black tracking-widest uppercase border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 rounded w-fit mb-1">
             當前活動：{currentEventName}
           </span>
@@ -203,7 +181,6 @@ export default function StaffScannerPage() {
       </header>
 
       <main className="flex-1 relative w-full h-full flex items-center justify-center bg-slate-900">
-        
         {scanStatus === "idle" && (
           <div className="absolute inset-0 z-10">
             <Scanner onScan={(result) => handleScan(result)} onError={(error) => console.error(error?.message)} options={{ delayBetweenScanAttempts: 800 }} styles={{ container: { width: '100%', height: '100%' }, video: { objectFit: 'cover' } }} />

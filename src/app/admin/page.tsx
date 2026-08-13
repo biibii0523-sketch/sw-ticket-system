@@ -42,7 +42,6 @@ export default function AdminDashboardPage() {
   const [visualFile, setVisualFile] = useState<File | null>(null);
   const [newTickets, setNewTickets] = useState<NewTicket[]>([{ title: "派對入場卷", type: "admission" }]);
 
-  // ================= 修改活動 Modal 狀態 =================
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editEventId, setEditEventId] = useState("");
   const [editEventName, setEditEventName] = useState("");
@@ -52,7 +51,6 @@ export default function AdminDashboardPage() {
   const [editTickets, setEditTickets] = useState<EditTicket[]>([]);
   const [isAirdropping, setIsAirdropping] = useState(false);
 
-  // ================= 派發票券 Modal 狀態 =================
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [issueEventId, setIssueEventId] = useState<string | null>(null);
   const [issueEventName, setIssueEventName] = useState("");
@@ -66,9 +64,12 @@ export default function AdminDashboardPage() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [batchResults, setBatchResults] = useState<string[]>([]);
 
+  // ⭐️ 核心防護：使用環境變數的密碼 (預設 fallback 為開發環境用)
+  const CORRECT_ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || "admin123";
+
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPin === "admin123") { setIsAdminAuth(true); setLoginError(false); } else { setLoginError(true); setAdminPin(""); }
+    if (adminPin === CORRECT_ADMIN_PIN) { setIsAdminAuth(true); setLoginError(false); } else { setLoginError(true); setAdminPin(""); }
   };
 
   const fetchDashboardData = async () => {
@@ -92,7 +93,6 @@ export default function AdminDashboardPage() {
 
   useEffect(() => { if (isAdminAuth && activeTab === "dashboard") fetchDashboardData(); }, [isAdminAuth, activeTab]);
 
-  // ================= ⭐️ 核心升級：修改活動邏輯與順序調整 =================
   const openEditModal = (event: EventData) => {
     setEditEventId(event.id); setEditEventName(event.name); setEditEventDate(event.event_date); setEditImageUrl(event.image_url); setEditVisualFile(null);
     const mappedTickets: EditTicket[] = event.ticketStats.map(t => ({ id: t.id, title: t.title, type: t.type as any }));
@@ -105,7 +105,6 @@ export default function AdminDashboardPage() {
   };
   const handleAddEditTicket = () => setEditTickets([...editTickets, { title: "加碼新票券", type: "gift" }]);
 
-  // 編輯視窗內的票券順序調整
   const handleMoveEditTicketOrder = (index: number, direction: 'up' | 'down') => {
     const newTickets = [...editTickets];
     if (direction === 'up' && index > 0) {
@@ -136,15 +135,9 @@ export default function AdminDashboardPage() {
       const { error: updateError } = await supabase.from('events').update({ name: editEventName, event_date: editEventDate, image_url: finalImageUrl }).eq('id', editEventId);
       if (updateError) throw new Error(`更新活動失敗: ${updateError.message}`);
 
-      // ⭐️ 儲存時，將陣列目前的 index 寫入 sort_order
       const ticketPromises = editTickets.map(async (t, index) => {
-        if (t.id) {
-          // 更新既有票券的名稱、種類與【順序】
-          return supabase.from('ticket_templates').update({ title: t.title, ticket_type: t.type, sort_order: index }).eq('id', t.id);
-        } else {
-          // 插入新票券並賦予【順序】
-          return supabase.from('ticket_templates').insert([{ event_id: editEventId, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index }]);
-        }
+        if (t.id) return supabase.from('ticket_templates').update({ title: t.title, ticket_type: t.type, sort_order: index }).eq('id', t.id);
+        else return supabase.from('ticket_templates').insert([{ event_id: editEventId, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index }]);
       });
       await Promise.all(ticketPromises);
 
@@ -164,7 +157,6 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert(`補發失敗：${err.message}`); } finally { setIsAirdropping(false); }
   };
 
-  // ================= 輔助功能 =================
   const handleDeleteEvent = async (eventId: string, eventName: string) => {
     if (!window.confirm(`⚠️ 確定要永久刪除「${eventName}」嗎？此操作無法復原！`)) return;
     try { setIsLoading(true); const { error } = await supabase.from('events').delete().eq('id', eventId); if (error) throw new Error(error.message); fetchDashboardData(); } catch (err: any) { alert(`刪除失敗：${err.message}`); setIsLoading(false); }
@@ -198,7 +190,6 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
   };
 
-  // ================= 派發票券功能 =================
   const openIssueModal = (eventId: string, eventName: string) => {
     setIssueEventId(eventId); setIssueEventName(eventName); setIssueMode('single'); setIssueSummonerName(""); setIssueEmail(""); setSingleGeneratedLink(null); setSingleStatusMsg(null); setBatchInput(""); setBatchResults([]); setBatchProgress({ current: 0, total: 0 }); setIssueModalOpen(true);
   };
@@ -232,7 +223,6 @@ export default function AdminDashboardPage() {
 
   const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); alert("已複製到剪貼簿！"); };
 
-  // ================= UI 渲染區塊 =================
   if (!isAdminAuth) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 bg-slate-950">
@@ -240,8 +230,8 @@ export default function AdminDashboardPage() {
           <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mb-6 border border-rose-900/50 shadow-inner"><ShieldAlert className="w-8 h-8 text-rose-500" /></div>
           <h1 className="text-2xl font-bold text-white mb-2">COMMAND CENTER</h1>
           <form onSubmit={handleAdminLogin} className="w-full flex flex-col gap-4 mt-6">
-            <input type="password" value={adminPin} onChange={(e) => setAdminPin(e.target.value)} className="w-full bg-slate-950/50 border-2 rounded-xl py-4 text-center text-xl text-white focus:outline-none border-slate-700" placeholder="ENTER SECURE KEY" />
-            <button type="submit" className="w-full py-4 mt-2 rounded-xl font-bold text-white bg-gradient-to-r from-rose-600 to-rose-800 hover:to-rose-700 active:scale-95 shadow-[0_0_15px_rgba(225,29,72,0.4)]">授權進入</button>
+            <input type="password" value={adminPin} onChange={(e) => setAdminPin(e.target.value)} className="w-full bg-slate-950/50 border-2 rounded-xl py-4 text-center text-xl text-white focus:outline-none focus:border-rose-500 border-slate-700 transition-colors" placeholder="ENTER SECURE KEY" />
+            <button type="submit" className="w-full py-4 mt-2 rounded-xl font-bold text-white bg-gradient-to-r from-rose-600 to-rose-800 hover:to-rose-700 active:scale-95 shadow-[0_0_15px_rgba(225,29,72,0.4)] transition-all">授權進入</button>
           </form>
         </div>
       </div>
@@ -309,7 +299,6 @@ export default function AdminDashboardPage() {
                       const redeemRate = stat.issuedCount > 0 ? Math.round((stat.redeemedCount / stat.issuedCount) * 100) : 0;
                       return (
                         <div key={stat.id} className="bg-slate-950/50 p-4 rounded-xl border border-slate-800 relative group">
-                          {/* 戰情室快速排序保留 */}
                           <div className="absolute top-4 right-4 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => handleMoveTicketOrder(ev.id, index, 'up')} disabled={index === 0} className="p-1 text-slate-400 hover:text-yellow-400 disabled:opacity-20"><ArrowUp className="w-4 h-4"/></button>
                             <button onClick={() => handleMoveTicketOrder(ev.id, index, 'down')} disabled={index === ev.ticketStats.length - 1} className="p-1 text-slate-400 hover:text-yellow-400 disabled:opacity-20"><ArrowDown className="w-4 h-4"/></button>
@@ -374,7 +363,7 @@ export default function AdminDashboardPage() {
         )}
       </main>
 
-      {/* ================= ⭐️ 修改活動與熱更新票券 Modal (新增順序調整功能) ================= */}
+      {/* ================= 修改活動與熱更新票券 Modal ================= */}
       {editModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-3xl p-6 md:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
@@ -399,7 +388,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* ⭐️ 票券熱更新編輯區 (加入上下排序控制) */}
               <div className="border-t border-slate-800 pt-6">
                  <div className="flex justify-between items-center mb-4">
                    <h4 className="text-lg font-bold text-white flex items-center gap-2"><Ticket className="w-5 h-5 text-yellow-500" /> 編輯既有/新增票券順序</h4>
@@ -411,7 +399,6 @@ export default function AdminDashboardPage() {
                      <div key={index} className="flex items-center gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800 relative">
                        {ticket.id && <span className="absolute -top-2 -right-2 bg-emerald-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full z-10 shadow-lg">線上同步中</span>}
                        
-                       {/* ⭐️ 順序調整按鈕 (上下箭頭) */}
                        <div className="flex flex-col gap-1 pr-2 border-r border-slate-800">
                          <button type="button" onClick={() => handleMoveEditTicketOrder(index, 'up')} disabled={index === 0} className="p-1 text-slate-500 hover:text-white disabled:opacity-20 transition-colors"><ArrowUp className="w-4 h-4"/></button>
                          <button type="button" onClick={() => handleMoveEditTicketOrder(index, 'down')} disabled={index === editTickets.length - 1} className="p-1 text-slate-500 hover:text-white disabled:opacity-20 transition-colors"><ArrowDown className="w-4 h-4"/></button>
