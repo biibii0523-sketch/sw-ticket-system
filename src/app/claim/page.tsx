@@ -15,7 +15,6 @@ function ClaimGateway() {
   const [expectedEmail, setExpectedEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   
-  // ⭐️ 新增：偵測玩家目前的瀏覽器是否已經處於 Google 登入狀態
   const [isAlreadyLoggedIn, setIsAlreadyLoggedIn] = useState(false);
 
   useEffect(() => {
@@ -94,7 +93,6 @@ function ClaimGateway() {
           </p>
 
           {error ? (
-            // ================= 發生錯誤 (Token 失效/已綁定) 的動態引導 UI =================
             <div className="flex flex-col w-full gap-4 items-center">
               <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3 w-full">
                 <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
@@ -102,7 +100,6 @@ function ClaimGateway() {
               </div>
               
               {isAlreadyLoggedIn ? (
-                // ⭐️ 情境 A：玩家仍處於登入狀態 -> 提供按鈕直接去票夾
                 <button 
                   onClick={() => router.push('/')}
                   className="w-full relative group overflow-hidden rounded-xl p-[1px] mt-2"
@@ -114,7 +111,6 @@ function ClaimGateway() {
                   </div>
                 </button>
               ) : (
-                // ⭐️ 情境 B：玩家已登出 (例如用 LINE 開啟) -> 提供 Google 重新登入按鈕
                 <>
                   <p className="text-slate-400 text-sm mt-2 w-full text-center">如果您已經綁定過，請直接登入查看：</p>
                   <button onClick={handleGoogleLogin} className="w-full relative group overflow-hidden rounded-xl p-[1px]">
@@ -133,7 +129,6 @@ function ClaimGateway() {
               )}
             </div>
           ) : (
-            // ================= 正常綁定流程 (Token 有效且尚未綁定) =================
             <>
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 w-full mb-8 flex items-center justify-center gap-3">
                 <Mail className="w-5 h-5 text-slate-500" />
@@ -164,11 +159,14 @@ export default function ClaimPage() {
   return (
     <div className="min-h-screen pt-12 pb-12 bg-slate-950 flex flex-col items-center">
       <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
+      
+      {/* ⭐️ 核心修改：正式改為 Com2uS 平台級別的通用標題 */}
       <header className="text-center mb-8 relative z-10">
-        <h2 className="text-xl font-bold bg-gradient-to-r from-yellow-300 to-yellow-500 text-transparent bg-clip-text drop-shadow-md">
-          12周年 競逐巔峰 極速派對
+        <h2 className="text-xl font-bold bg-gradient-to-r from-yellow-300 to-yellow-500 text-transparent bg-clip-text drop-shadow-md tracking-wider">
+          Com2uS 數位票卷系統
         </h2>
       </header>
+      
       <Suspense fallback={<Loader2 className="w-8 h-8 text-yellow-500 animate-spin mt-20" />}>
         <ClaimGateway />
       </Suspense>

@@ -40,7 +40,9 @@ export default function AdminDashboardPage() {
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
   const [visualFile, setVisualFile] = useState<File | null>(null);
-  const [newTickets, setNewTickets] = useState<NewTicket[]>([{ title: "派對入場卷", type: "admission" }]);
+  
+  // ⭐️ 修改：將預設字眼改為通用的「活動入場卷」
+  const [newTickets, setNewTickets] = useState<NewTicket[]>([{ title: "活動入場卷", type: "admission" }]);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editEventId, setEditEventId] = useState("");
@@ -64,7 +66,6 @@ export default function AdminDashboardPage() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [batchResults, setBatchResults] = useState<string[]>([]);
 
-  // ⭐️ 核心防護：使用環境變數的密碼 (預設 fallback 為開發環境用)
   const CORRECT_ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || "admin123";
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -143,6 +144,7 @@ export default function AdminDashboardPage() {
 
       alert("🎉 活動基本設定更新成功！\n名稱與順序修改已即時同步至玩家手機。");
       fetchDashboardData();
+      setEditModalOpen(false); 
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
   };
 
@@ -186,7 +188,10 @@ export default function AdminDashboardPage() {
       const templatesToInsert = newTickets.map((t, index) => ({ event_id: eventData.id, title: t.title, ticket_type: t.type, total_quantity: 0, sort_order: index }));
       const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert); if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
       alert("🎉 活動創建成功！請到「戰情室」點擊【派發】按鈕發送票券。");
-      setNewEventName(""); setNewEventDate(""); setVisualFile(null); setNewTickets([{ title: "派對入場卷", type: "admission" }]); setActiveTab("dashboard");
+      setNewEventName(""); setNewEventDate(""); setVisualFile(null); 
+      // ⭐️ 重置時改回通用字眼
+      setNewTickets([{ title: "活動入場卷", type: "admission" }]); 
+      setActiveTab("dashboard");
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
   };
 
@@ -330,7 +335,7 @@ export default function AdminDashboardPage() {
                  <div><label className="block text-sm font-bold text-slate-400 mb-2">活動日期</label><input type="date" required value={newEventDate} onChange={e => setNewEventDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500 focus:outline-none [color-scheme:dark]" /></div>
                </div>
                <div>
-                 <label className="block text-sm font-bold text-slate-400 mb-2">主視覺上傳 (比例 21:9，如 1600x400)</label>
+                 <label className="block text-sm font-bold text-slate-400 mb-2">主視覺上傳 (比例 4:1，如 1600x400)</label>
                  <div className="border-2 border-dashed border-slate-700 bg-slate-950/50 rounded-2xl p-8 flex flex-col items-center justify-center relative cursor-pointer" onClick={() => document.getElementById('visual-upload')?.click()}>
                    <input id="visual-upload" type="file" accept="image/*" className="hidden" onChange={(e) => setVisualFile(e.target.files?.[0] || null)} />
                    {visualFile ? <div className="text-emerald-400 font-bold flex gap-2"><CheckCircle2/> {visualFile.name}</div> : <><ImageIcon className="w-12 h-12 text-slate-500 mb-3" /><p className="text-slate-300 font-bold">點擊上傳圖片</p></>}
@@ -486,7 +491,7 @@ export default function AdminDashboardPage() {
               <div className="space-y-4 animate-in fade-in">
                 {batchResults.length === 0 ? (
                   <>
-                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。</div>
+                    <div className="bg-slate-800/50 border border-slate-700 p-3 rounded-lg text-xs text-slate-300 leading-relaxed">💡 提示：請直接從 Excel 複製兩欄資料（信箱、暱稱）貼到底下。如果臨時加碼了新票券，再次匯入同份名單即可為他們補發新票！</div>
                     <div><textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} placeholder={`player1@gmail.com, 神之手\nplayer2@yahoo.com.tw, 龍騎士`} className="w-full h-48 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none whitespace-pre" /></div>
                     <button onClick={handleBatchIssue} disabled={isBatchProcessing} className="w-full flex justify-center items-center gap-2 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-bold rounded-xl active:scale-95 disabled:opacity-50">
                       {isBatchProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />} {isBatchProcessing ? '批次派發中，請勿關閉...' : '開始批次派發'}
