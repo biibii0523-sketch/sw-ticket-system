@@ -172,19 +172,16 @@ export default function PlayerTicketWallet() {
   return (
     <div className="flex flex-col items-center min-h-screen px-4 py-6 text-slate-100 relative z-10 overflow-hidden">
       
-      {/* ================= ⭐️ 背景材質與環境光暈升級 ================= */}
-      <div className="fixed inset-0 z-[-3] bg-[#0a0f1c]" /> {/* 更深邃的星空藍黑底 */}
+      {/* ================= 背景材質與環境光暈 ================= */}
+      <div className="fixed inset-0 z-[-3] bg-[#0a0f1c]" /> 
       
-      {/* 動態環境光 (Ambient Glow) - 讓毛玻璃有折射的依據 */}
       <div className="fixed inset-0 z-[-2] overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 -left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[100px]" />
         <div className="absolute top-3/4 -right-1/4 w-96 h-96 bg-yellow-500/10 rounded-full blur-[100px]" />
         <div className="absolute bottom-0 left-1/4 w-[500px] h-[500px] bg-blue-900/10 rounded-full blur-[120px]" />
       </div>
 
-      {/* 雜訊紋理 (Noise Texture) 增加實體感 */}
       <div className="fixed inset-0 z-[-1] opacity-[0.03] pointer-events-none mix-blend-overlay" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }} />
-
 
       {/* ================= 頂部功能列 ================= */}
       <div className="w-full max-w-md flex justify-end mb-3">
@@ -193,7 +190,7 @@ export default function PlayerTicketWallet() {
         </button>
       </div>
 
-      {/* ================= 場次切換 Tabs ================= */}
+      {/* ================= 場次切換 Tabs (保留原樣) ================= */}
       {eventGroups.length > 1 && (
         <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-2 mb-5 scrollbar-hide snap-x">
           {eventGroups.map((group) => (
@@ -212,45 +209,41 @@ export default function PlayerTicketWallet() {
 
       {/* ================= Header 區塊 ================= */}
       <header className="text-center mb-8 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
-        {/* 動態活動主視覺橫幅 */}
+        
+        {/* ⭐️ 動態活動主視覺橫幅 (乾淨無標籤版) */}
         {activeEvent?.imageUrl && (
-          <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.5)] border border-white/10 bg-slate-900 flex items-center justify-center">
+          <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.5)] border border-white/10 bg-slate-900 flex items-center justify-center group">
             <img src={activeEvent.imageUrl} alt={activeEvent.eventName} className="w-full aspect-[4/1] object-cover object-center" />
             <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-[#0a0f1c] to-transparent pointer-events-none opacity-80" />
-            
-            {/* 橫幅上的毛玻璃疊加資訊 */}
-            <div className="absolute bottom-3 right-3 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-white tracking-widest uppercase">活動認證中</span>
-            </div>
+            {/* 標籤已俐落移除 */}
           </div>
         )}
         
+        {/* 召喚師暱稱底框 (保留原樣) */}
         <div className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-b from-white/[0.08] to-transparent backdrop-blur-xl rounded-full w-fit mx-auto border border-white/[0.12] border-t-white/[0.2] shadow-lg">
           <UserCircle2 className="w-4 h-4 text-emerald-400" />
           <p className="text-slate-200 text-sm tracking-wide">召喚師：<span className="text-white font-bold drop-shadow-md">{playerInfo?.summonerName}</span></p>
         </div>
       </header>
 
-      {/* ================= ⭐️ 票券列表 (極致毛玻璃立體化) ================= */}
+      {/* ================= ⭐️ 票券列表 (新增底部螢光透視質感) ================= */}
       <div key={activeEventId} className="grid grid-cols-2 gap-4 w-full max-w-md pb-24">
         {activeEvent?.tickets.map((ticket, index) => (
           <button 
             key={ticket.id} 
             onClick={() => !ticket.isRedeemed && setSelectedTicket(ticket)} 
             disabled={ticket.isRedeemed} 
+            // ⭐️ 核心渲染修改：bg-gradient 漸層到底部加上 to-yellow-500/[0.06]，並用 border-b 強化底部反射線條
             className={`relative overflow-hidden flex flex-col items-center justify-center p-6 rounded-[20px] transition-all duration-300 group animate-in zoom-in-95 fade-in
               ${ticket.isRedeemed 
                 ? "bg-slate-900/40 border border-slate-800/50 opacity-50 cursor-not-allowed grayscale shadow-none" 
-                : "bg-gradient-to-b from-white/[0.08] to-white/[0.02] backdrop-blur-xl border border-white/[0.12] border-t-white/[0.25] shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-yellow-500/50 hover:bg-white/[0.12] active:scale-[0.97] hover:shadow-[0_0_25px_rgba(234,179,8,0.2)]"
+                : "bg-gradient-to-b from-white/[0.08] via-white/[0.02] to-yellow-500/[0.06] backdrop-blur-xl border border-white/[0.08] border-t-white/[0.25] border-b-yellow-500/[0.25] shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:to-yellow-500/[0.12] hover:border-b-yellow-500/[0.5] active:scale-[0.97] hover:shadow-[0_0_25px_rgba(234,179,8,0.2)]"
               }
             `} 
             style={{ animationDelay: `${index * 75}ms`, animationFillMode: "both" }}
           >
-            {/* 隱藏的微亮折射反光 */}
             {!ticket.isRedeemed && <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />}
             
-            {/* ⭐️ Icon 凹陷立體容器 */}
             <div className={`mb-4 p-4 rounded-[14px] transition-all duration-500 
               ${ticket.isRedeemed 
                 ? 'bg-slate-900 text-slate-600 shadow-inner' 
@@ -266,7 +259,6 @@ export default function PlayerTicketWallet() {
               {ticket.title}
             </span>
 
-            {/* 核銷印章 */}
             {ticket.isRedeemed && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px] rounded-[20px]">
                 <CheckCircle2 className="w-10 h-10 text-emerald-500/80 mb-1 drop-shadow-lg" />
@@ -302,7 +294,6 @@ export default function PlayerTicketWallet() {
               <>
                 <div className="text-center mb-8 mt-4 relative z-10 w-full">
                   <div className="mx-auto w-16 h-16 bg-black/40 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-white/10 text-yellow-400 rounded-[18px] flex items-center justify-center mb-5 relative">
-                     {/* Icon 背後的發光 */}
                      <div className="absolute inset-0 bg-yellow-500/20 blur-md rounded-[18px] z-[-1]" />
                      {getIcon(selectedTicket.type, "w-8 h-8 relative z-10")}
                   </div>
