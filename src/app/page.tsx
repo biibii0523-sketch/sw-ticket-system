@@ -33,12 +33,10 @@ export default function PlayerTicketWallet() {
   const [qrRefreshTimer, setQrRefreshTimer] = useState(30);
   const [isJustRedeemed, setIsJustRedeemed] = useState(false);
 
-  // ⭐️ 核心認證與資料拉取邏輯
   const fetchDynamicData = useCallback(async (silent = false) => {
     try {
       if (!silent) setIsLoading(true);
       
-      // 1. 檢查 Google 登入 Session
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
@@ -47,25 +45,19 @@ export default function PlayerTicketWallet() {
         return;
       }
 
-      // 2. 檢查是否有從 /claim 帶過來的未綁定 Token
       const pendingToken = localStorage.getItem('sw_magic_token');
       if (pendingToken) {
-        // 呼叫後端 RPC 進行安全綁定
         const { error: bindError } = await supabase.rpc('bind_player_account', { p_magic_token: pendingToken });
-        
         if (bindError) {
-          // 綁定失敗 (例如信箱不符)，強制登出並報錯
           await supabase.auth.signOut();
           localStorage.removeItem('sw_magic_token');
           setAuthError(`身分綁定失敗：${bindError.message}`);
           setIsLoading(false);
           return;
         }
-        // 綁定成功，清除 Token
         localStorage.removeItem('sw_magic_token');
       }
 
-      // 3. 獲取當前登入玩家的真實票券 (取代寫死的 TEST_PLAYER_ID)
       const { data: playerData, error: playerError } = await supabase
         .from('players')
         .select(`
@@ -120,7 +112,6 @@ export default function PlayerTicketWallet() {
 
   useEffect(() => { fetchDynamicData(); }, [fetchDynamicData]);
 
-  // 登出功能
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     window.location.reload();
@@ -172,7 +163,7 @@ export default function PlayerTicketWallet() {
       <AlertTriangle className="w-16 h-16 text-rose-500 mb-4" />
       <h2 className="text-xl font-bold text-rose-400 mb-4">存取拒絕</h2>
       <p className="text-slate-400 mb-8">{authError}</p>
-      {authError.includes('尚未綁定') && <button onClick={handleSignOut} className="px-6 py-2 bg-slate-800 text-white rounded-xl">重新登入</button>}
+      {authError.includes('尚未綁定') && <button onClick={handleSignOut} className="px-6 py-2 bg-slate-800 text-white rounded-xl shadow-lg">重新登入</button>}
     </div>
   );
 
@@ -180,89 +171,164 @@ export default function PlayerTicketWallet() {
 
   return (
     <div className="flex flex-col items-center min-h-screen px-4 py-6 text-slate-100 relative z-10 overflow-hidden">
-      <div className="fixed inset-0 z-[-2] bg-slate-950" />
-      <div className="fixed inset-0 z-[-1] bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 backdrop-blur-[4px]" />
+      
+      {/* ================= ⭐️ 背景材質與環境光暈升級 ================= */}
+      <div className="fixed inset-0 z-[-3] bg-[#0a0f1c]" /> {/* 更深邃的星空藍黑底 */}
+      
+      {/* 動態環境光 (Ambient Glow) - 讓毛玻璃有折射的依據 */}
+      <div className="fixed inset-0 z-[-2] overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 -left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[100px]" />
+        <div className="absolute top-3/4 -right-1/4 w-96 h-96 bg-yellow-500/10 rounded-full blur-[100px]" />
+        <div className="absolute bottom-0 left-1/4 w-[500px] h-[500px] bg-blue-900/10 rounded-full blur-[120px]" />
+      </div>
 
-      <div className="w-full max-w-md flex justify-end mb-2">
-        <button onClick={handleSignOut} className="flex items-center gap-1 text-xs text-slate-500 hover:text-rose-400 transition-colors bg-slate-900/50 px-3 py-1.5 rounded-full border border-slate-800">
+      {/* 雜訊紋理 (Noise Texture) 增加實體感 */}
+      <div className="fixed inset-0 z-[-1] opacity-[0.03] pointer-events-none mix-blend-overlay" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }} />
+
+
+      {/* ================= 頂部功能列 ================= */}
+      <div className="w-full max-w-md flex justify-end mb-3">
+        <button onClick={handleSignOut} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 transition-colors bg-slate-900/40 backdrop-blur-md px-4 py-2 rounded-full border border-slate-700/50 shadow-sm">
           <LogOut className="w-3 h-3" /> 登出帳號
         </button>
       </div>
 
+      {/* ================= 場次切換 Tabs ================= */}
       {eventGroups.length > 1 && (
-        <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-2 mb-4 scrollbar-hide snap-x">
+        <div className="w-full max-w-md flex overflow-x-auto gap-3 pb-2 mb-5 scrollbar-hide snap-x">
           {eventGroups.map((group) => (
-            <button key={group.eventId} onClick={() => setActiveEventId(group.eventId)} className={`snap-center shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all duration-300 border backdrop-blur-md ${activeEventId === group.eventId ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'bg-slate-900/50 text-slate-400 border-slate-700/50 hover:bg-slate-800'}`}>
+            <button key={group.eventId} onClick={() => setActiveEventId(group.eventId)} 
+              className={`snap-center shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition-all duration-300 backdrop-blur-xl
+                ${activeEventId === group.eventId 
+                  ? 'bg-gradient-to-br from-yellow-500/20 to-yellow-600/5 text-yellow-400 border border-yellow-500/50 shadow-[0_4px_20px_rgba(234,179,8,0.15)] border-t-yellow-400/60' 
+                  : 'bg-white/[0.03] text-slate-400 border border-white/5 hover:bg-white/[0.06] hover:text-slate-200'
+                }
+              `}>
               <MapPin className="w-4 h-4" /> {group.eventName.substring(0, 8)}...
             </button>
           ))}
         </div>
       )}
 
-      <header className="text-center mb-6 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
+      {/* ================= Header 區塊 ================= */}
+      <header className="text-center mb-8 w-full max-w-md flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-700">
+        {/* 動態活動主視覺橫幅 */}
         {activeEvent?.imageUrl && (
-          <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(234,179,8,0.2)] border border-yellow-500/20">
+          <div className="w-full relative mb-5 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.5)] border border-white/10 bg-slate-900 flex items-center justify-center">
             <img src={activeEvent.imageUrl} alt={activeEvent.eventName} className="w-full aspect-[4/1] object-cover object-center" />
-            <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-[#0a0f1c] to-transparent pointer-events-none opacity-80" />
+            
+            {/* 橫幅上的毛玻璃疊加資訊 */}
+            <div className="absolute bottom-3 right-3 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] font-bold text-white tracking-widest uppercase">活動認證中</span>
+            </div>
           </div>
         )}
-        <div className="flex items-center justify-center gap-2 px-5 py-2 glass-card rounded-full w-fit mx-auto epic-glow border-yellow-500/30">
+        
+        <div className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-b from-white/[0.08] to-transparent backdrop-blur-xl rounded-full w-fit mx-auto border border-white/[0.12] border-t-white/[0.2] shadow-lg">
           <UserCircle2 className="w-4 h-4 text-emerald-400" />
-          <p className="text-slate-200 text-sm tracking-wide">召喚師：<span className="text-white font-bold">{playerInfo?.summonerName}</span></p>
+          <p className="text-slate-200 text-sm tracking-wide">召喚師：<span className="text-white font-bold drop-shadow-md">{playerInfo?.summonerName}</span></p>
         </div>
       </header>
 
-      <div key={activeEventId} className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-2xl pb-20">
+      {/* ================= ⭐️ 票券列表 (極致毛玻璃立體化) ================= */}
+      <div key={activeEventId} className="grid grid-cols-2 gap-4 w-full max-w-md pb-24">
         {activeEvent?.tickets.map((ticket, index) => (
-          <button key={ticket.id} onClick={() => !ticket.isRedeemed && setSelectedTicket(ticket)} disabled={ticket.isRedeemed} className={`relative overflow-hidden flex flex-col items-center justify-center p-5 rounded-2xl transition-all duration-300 group animate-in zoom-in-95 fade-in ${ticket.isRedeemed ? "bg-slate-950/80 border border-slate-800/50 opacity-60 cursor-not-allowed grayscale" : "glass-card hover:border-yellow-500/50 hover:bg-white/10 active:scale-95 hover:shadow-[0_0_20px_rgba(234,179,8,0.2)]"}`} style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}>
-            {!ticket.isRedeemed && <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />}
-            <div className={`mb-3 p-3 rounded-xl transition-colors ${ticket.isRedeemed ? 'bg-slate-800 text-slate-500' : 'bg-slate-800/80 text-yellow-400 group-hover:text-yellow-300 shadow-inner border border-white/5'}`}>{getIcon(ticket.type)}</div>
-            <span className="text-sm font-bold text-center leading-snug text-slate-200 group-hover:text-white">{ticket.title}</span>
+          <button 
+            key={ticket.id} 
+            onClick={() => !ticket.isRedeemed && setSelectedTicket(ticket)} 
+            disabled={ticket.isRedeemed} 
+            className={`relative overflow-hidden flex flex-col items-center justify-center p-6 rounded-[20px] transition-all duration-300 group animate-in zoom-in-95 fade-in
+              ${ticket.isRedeemed 
+                ? "bg-slate-900/40 border border-slate-800/50 opacity-50 cursor-not-allowed grayscale shadow-none" 
+                : "bg-gradient-to-b from-white/[0.08] to-white/[0.02] backdrop-blur-xl border border-white/[0.12] border-t-white/[0.25] shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-yellow-500/50 hover:bg-white/[0.12] active:scale-[0.97] hover:shadow-[0_0_25px_rgba(234,179,8,0.2)]"
+              }
+            `} 
+            style={{ animationDelay: `${index * 75}ms`, animationFillMode: "both" }}
+          >
+            {/* 隱藏的微亮折射反光 */}
+            {!ticket.isRedeemed && <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />}
+            
+            {/* ⭐️ Icon 凹陷立體容器 */}
+            <div className={`mb-4 p-4 rounded-[14px] transition-all duration-500 
+              ${ticket.isRedeemed 
+                ? 'bg-slate-900 text-slate-600 shadow-inner' 
+                : 'bg-black/40 text-yellow-400 group-hover:text-yellow-300 group-hover:bg-black/60 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-white/5 group-hover:scale-110 group-hover:shadow-[inset_0_2px_15px_rgba(234,179,8,0.2)]'
+              }`}
+            >
+              {getIcon(ticket.type, "w-7 h-7")}
+            </div>
+            
+            <span className={`text-[13px] font-bold text-center leading-snug tracking-wide transition-colors
+              ${ticket.isRedeemed ? 'text-slate-500' : 'text-slate-200 group-hover:text-white drop-shadow-md'}
+            `}>
+              {ticket.title}
+            </span>
+
+            {/* 核銷印章 */}
             {ticket.isRedeemed && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-[2px]">
-                <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-1 drop-shadow-lg" />
-                <span className="text-emerald-400 text-xs font-black tracking-widest border-2 border-emerald-500/50 bg-emerald-950/80 px-3 py-1 rounded-md rotate-[-12deg] shadow-lg">已核銷</span>
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[2px] rounded-[20px]">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500/80 mb-1 drop-shadow-lg" />
+                <span className="text-emerald-400/90 text-xs font-black tracking-widest border-2 border-emerald-500/40 bg-emerald-950/60 px-3 py-1 rounded-md rotate-[-12deg] shadow-lg">已兌換</span>
               </div>
             )}
           </button>
         ))}
       </div>
 
+      {/* ================= 動態 QR Code 與 成功動畫 Modal ================= */}
       {selectedTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className={`w-full max-w-sm rounded-3xl p-6 shadow-2xl relative flex flex-col items-center overflow-hidden transition-colors duration-500 ${isJustRedeemed ? 'bg-emerald-950 border border-emerald-500/50' : 'bg-slate-900 border border-slate-700'}`}>
-            <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 blur-[50px] pointer-events-none transition-colors duration-500 ${isJustRedeemed ? 'bg-emerald-500/30' : 'bg-yellow-500/20'}`} />
-            <button onClick={handleCloseModal} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors z-10"><X className="w-6 h-6" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-[#0a0f1c]/90 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className={`w-full max-w-sm rounded-[32px] p-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative flex flex-col items-center overflow-hidden transition-colors duration-500 
+            ${isJustRedeemed ? 'bg-gradient-to-b from-emerald-950 to-slate-950 border border-emerald-500/50' : 'bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700'}
+          `}>
+            
+            <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-full h-40 blur-[60px] pointer-events-none transition-colors duration-500 ${isJustRedeemed ? 'bg-emerald-500/30' : 'bg-yellow-500/20'}`} />
+            
+            <button onClick={handleCloseModal} className="absolute top-5 right-5 text-slate-400 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors z-10"><X className="w-6 h-6" /></button>
 
             {isJustRedeemed ? (
-              <div className="flex flex-col items-center justify-center py-8 animate-in zoom-in-95 duration-500 z-10 w-full text-center">
-                <PartyPopper className="w-24 h-24 text-emerald-400 mb-6 drop-shadow-[0_0_20px_rgba(52,211,153,0.8)] animate-bounce" />
-                <h2 className="text-3xl font-black text-white mb-2 tracking-widest drop-shadow-md">兌換成功</h2>
-                <p className="text-emerald-200 font-bold mb-4">{selectedTicket.title}</p>
-                <div className="bg-emerald-900/50 border border-emerald-500/30 rounded-xl px-4 py-3 mt-2 mb-6 w-full"><p className="text-emerald-100 text-sm">請依照工作人員指示領取物品</p></div>
-                <button onClick={handleCloseModal} className="w-full py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 text-white font-bold rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all active:scale-95">關閉視窗</button>
+              <div className="flex flex-col items-center justify-center py-10 animate-in zoom-in-95 duration-500 z-10 w-full text-center">
+                <PartyPopper className="w-24 h-24 text-emerald-400 mb-6 drop-shadow-[0_0_25px_rgba(52,211,153,0.6)] animate-bounce" />
+                <h2 className="text-3xl font-black text-white mb-2 tracking-widest drop-shadow-lg">兌換成功</h2>
+                <p className="text-emerald-300 font-bold mb-6 text-lg">{selectedTicket.title}</p>
+                <div className="bg-emerald-900/40 border border-emerald-500/30 rounded-2xl px-5 py-4 w-full backdrop-blur-sm shadow-inner">
+                  <p className="text-emerald-100 text-sm leading-relaxed">請依照現場工作人員指示<br/>領取您的專屬物品</p>
+                </div>
+                <button onClick={handleCloseModal} className="w-full py-4 mt-8 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 text-white font-bold rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all active:scale-95 text-lg">完成並關閉</button>
               </div>
             ) : (
               <>
-                <div className="text-center mb-6 mt-4 relative z-10">
-                  <div className="mx-auto w-16 h-16 glass-card text-yellow-400 rounded-2xl flex items-center justify-center mb-4 epic-glow">{getIcon(selectedTicket.type, "w-8 h-8")}</div>
-                  <h2 className="text-2xl font-bold text-white mb-1">{selectedTicket.title}</h2>
+                <div className="text-center mb-8 mt-4 relative z-10 w-full">
+                  <div className="mx-auto w-16 h-16 bg-black/40 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-white/10 text-yellow-400 rounded-[18px] flex items-center justify-center mb-5 relative">
+                     {/* Icon 背後的發光 */}
+                     <div className="absolute inset-0 bg-yellow-500/20 blur-md rounded-[18px] z-[-1]" />
+                     {getIcon(selectedTicket.type, "w-8 h-8 relative z-10")}
+                  </div>
+                  <h2 className="text-2xl font-black text-white mb-2 drop-shadow-md tracking-wide">{selectedTicket.title}</h2>
+                  <p className="text-slate-400 text-sm">請將此畫面出示給關主掃描</p>
                 </div>
-                <div className="relative mb-6">
-                  <div className="absolute -inset-2 border-2 border-yellow-500/30 rounded-3xl z-0 overflow-hidden pointer-events-none"><div className="w-full h-1 bg-yellow-400/80 shadow-[0_0_15px_rgba(234,179,8,1)] absolute animate-[scan_2s_ease-in-out_infinite]" /></div>
-                  <div className="bg-white p-3 rounded-2xl flex flex-col items-center justify-center relative z-10 shadow-[0_0_30px_rgba(255,255,255,0.1)]">
-                    <QRCodeSVG value={selectedTicket.id} size={220} level={"M"} includeMargin={true} bgColor={"#ffffff"} fgColor={"#000000"} className="rounded-lg" />
+                
+                <div className="relative mb-8 w-full max-w-[240px]">
+                  <div className="absolute -inset-3 border-2 border-yellow-500/20 rounded-[28px] z-0 overflow-hidden pointer-events-none">
+                     <div className="w-full h-[6px] bg-yellow-400/90 shadow-[0_0_25px_rgba(234,179,8,1)] absolute animate-[scan_2s_ease-in-out_infinite]" />
+                  </div>
+                  <div className="bg-white p-4 rounded-3xl flex flex-col items-center justify-center relative z-10 shadow-[0_0_40px_rgba(0,0,0,0.5)]">
+                    <QRCodeSVG value={selectedTicket.id} size={210} level={"M"} includeMargin={true} bgColor={"#ffffff"} fgColor={"#000000"} className="rounded-xl" />
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-slate-400 text-sm font-mono bg-slate-950 px-4 py-2 rounded-full border border-slate-800">
-                  <RefreshCw className={`w-4 h-4 ${qrRefreshTimer <= 5 ? 'text-rose-500 animate-spin' : 'text-slate-500'}`} />更新倒數：<span className={`font-bold w-6 text-center ${qrRefreshTimer <= 5 ? 'text-rose-500' : 'text-yellow-400'}`}>{qrRefreshTimer}s</span>
+                
+                <div className="flex items-center justify-center gap-2 text-slate-400 text-sm font-mono bg-black/40 backdrop-blur-md px-5 py-2.5 rounded-full border border-white/10 w-full max-w-[240px] shadow-inner">
+                  <RefreshCw className={`w-4 h-4 ${qrRefreshTimer <= 5 ? 'text-rose-500 animate-spin' : 'text-slate-500'}`} />
+                  更新倒數：<span className={`font-bold w-6 text-center text-lg ${qrRefreshTimer <= 5 ? 'text-rose-500' : 'text-yellow-400'}`}>{qrRefreshTimer}</span>
                 </div>
               </>
             )}
           </div>
         </div>
       )}
-      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(260px); } 90% { opacity: 1; } } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
+      <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0%, 100% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 50% { transform: translateY(280px); } 90% { opacity: 1; } } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }`}} />
     </div>
   );
 }
