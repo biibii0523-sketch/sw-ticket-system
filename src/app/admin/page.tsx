@@ -41,7 +41,6 @@ export default function AdminDashboardPage() {
   const [newEventDate, setNewEventDate] = useState("");
   const [visualFile, setVisualFile] = useState<File | null>(null);
   
-  // ⭐️ 修改：將預設字眼改為通用的「活動入場卷」
   const [newTickets, setNewTickets] = useState<NewTicket[]>([{ title: "活動入場卷", type: "admission" }]);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -189,7 +188,6 @@ export default function AdminDashboardPage() {
       const { error: ticketsError } = await supabase.from('ticket_templates').insert(templatesToInsert); if (ticketsError) throw new Error(`建立票券模板失敗: ${ticketsError.message}`);
       alert("🎉 活動創建成功！請到「戰情室」點擊【派發】按鈕發送票券。");
       setNewEventName(""); setNewEventDate(""); setVisualFile(null); 
-      // ⭐️ 重置時改回通用字眼
       setNewTickets([{ title: "活動入場卷", type: "admission" }]); 
       setActiveTab("dashboard");
     } catch (err: any) { alert(err.message || "發生未知錯誤"); } finally { setIsSubmitting(false); }
@@ -199,31 +197,95 @@ export default function AdminDashboardPage() {
     setIssueEventId(eventId); setIssueEventName(eventName); setIssueMode('single'); setIssueSummonerName(""); setIssueEmail(""); setSingleGeneratedLink(null); setSingleStatusMsg(null); setBatchInput(""); setBatchResults([]); setBatchProgress({ current: 0, total: 0 }); setIssueModalOpen(true);
   };
 
+  // ⭐️ 核心防護：修復單筆派發的連結取得邏輯
   const handleSingleIssue = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!issueEmail.includes('@') || !issueSummonerName.trim()) return alert('請確認信箱格式正確且已填寫暱稱！'); setIsLoading(true);
+    e.preventDefault(); 
+    if (!issueEmail.includes('@') || !issueSummonerName.trim()) return alert('請確認信箱格式正確且已填寫暱稱！'); 
+    setIsLoading(true);
     try {
-      const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { p_event_id: issueEventId, p_summoner_name: issueSummonerName.trim(), p_email: issueEmail.trim() });
+      const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { 
+        p_event_id: issueEventId, 
+        p_summoner_name: issueSummonerName.trim(), 
+        p_email: issueEmail.trim() 
+      });
       if (error) throw error;
-      if (magicToken) { setSingleGeneratedLink(`${window.location.origin}/claim?token=${magicToken}`); setSingleStatusMsg({ type: 'success', text: '✅ 魔法連結產生成功！請複製給玩家。' }); } else { setSingleGeneratedLink(null); setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！' }); }
+      
+      let finalToken = magicToken;
+      // 💡 關鍵防呆：如果 RPC 沒有回傳 Token (代表已註冊過)，主動去 players 資料表把舊 Token 撈出來！
+      if (!finalToken) {
+        const { data: existPlayer } = await supabase
+          .from('players')
+          .select('magic_token')
+          .eq('email', issueEmail.trim())
+          .single();
+        if (existPlayer && existPlayer.magic_token) {
+          finalToken = existPlayer.magic_token;
+        }
+      }
+
+      if (finalToken) { 
+        setSingleGeneratedLink(`${window.location.origin}/claim?token=${finalToken}`); 
+        setSingleStatusMsg({ type: 'success', text: '✅ 票券派發成功！請複製下方專屬連結給玩家。' }); 
+      } else { 
+        setSingleGeneratedLink(null); 
+        setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！(但無法取得舊有連結)' }); 
+      }
       fetchDashboardData();
-    } catch (err: any) { setSingleStatusMsg({ type: 'error', text: `派發失敗：${err.message}` }); } finally { setIsLoading(false); }
+    } catch (err: any) { 
+      setSingleStatusMsg({ type: 'error', text: `派發失敗：${err.message}` }); 
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
+  // ⭐️ 核心防護：修復批次派發的連結取得邏輯
   const handleBatchIssue = async () => {
     if (!batchInput.trim()) return alert("請貼上匯入資料！");
     const lines = batchInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     const parsedList = lines.map(line => { const parts = line.split(/[,\t]+/).map(p => p.trim()); return { email: parts[0] || "", name: parts[1] || "" }; });
-    const invalidItem = parsedList.find(p => !p.email.includes('@') || !p.name); if (invalidItem) return alert(`資料格式錯誤！請檢查此行：\n${invalidItem.email || "(空信箱)"} , ${invalidItem.name || "(空暱稱)"}\n\n正確格式：信箱, 暱稱`);
-    setIsBatchProcessing(true); setBatchResults([]); const resultsReport = ["信箱\t暱稱\t魔法連結或狀態"]; 
+    const invalidItem = parsedList.find(p => !p.email.includes('@') || !p.name); 
+    if (invalidItem) return alert(`資料格式錯誤！請檢查此行：\n${invalidItem.email || "(空信箱)"} , ${invalidItem.name || "(空暱稱)"}\n\n正確格式：信箱, 暱稱`);
+    
+    setIsBatchProcessing(true); 
+    setBatchResults([]); 
+    const resultsReport = ["信箱\t暱稱\t魔法連結或狀態"]; 
+    
     for (let i = 0; i < parsedList.length; i++) {
-      const p = parsedList[i]; setBatchProgress({ current: i + 1, total: parsedList.length });
+      const p = parsedList[i]; 
+      setBatchProgress({ current: i + 1, total: parsedList.length });
       try {
-        const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { p_event_id: issueEventId, p_summoner_name: p.name, p_email: p.email });
+        const { data: magicToken, error } = await supabase.rpc('issue_event_tickets_to_player', { 
+          p_event_id: issueEventId, 
+          p_summoner_name: p.name, 
+          p_email: p.email 
+        });
         if (error) throw error;
-        if (magicToken) resultsReport.push(`${p.email}\t${p.name}\t${window.location.origin}/claim?token=${magicToken}`); else resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動補發/派發成功`);
-      } catch (err: any) { resultsReport.push(`${p.email}\t${p.name}\t[失敗] ${err.message}`); }
+        
+        let finalToken = magicToken;
+        // 💡 關鍵防呆：批次匯入若遇老玩家，一樣主動抓舊 Token
+        if (!finalToken) {
+          const { data: existPlayer } = await supabase
+            .from('players')
+            .select('magic_token')
+            .eq('email', p.email)
+            .single();
+          if (existPlayer && existPlayer.magic_token) {
+            finalToken = existPlayer.magic_token;
+          }
+        }
+
+        if (finalToken) {
+          resultsReport.push(`${p.email}\t${p.name}\t${window.location.origin}/claim?token=${finalToken}`); 
+        } else { 
+          resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動補發/派發成功`); 
+        }
+      } catch (err: any) { 
+        resultsReport.push(`${p.email}\t${p.name}\t[失敗] ${err.message}`); 
+      }
     }
-    setBatchResults(resultsReport); setIsBatchProcessing(false); fetchDashboardData(); 
+    setBatchResults(resultsReport); 
+    setIsBatchProcessing(false); 
+    fetchDashboardData(); 
   };
 
   const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); alert("已複製到剪貼簿！"); };
