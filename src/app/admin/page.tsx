@@ -197,7 +197,7 @@ export default function AdminDashboardPage() {
     setIssueEventId(eventId); setIssueEventName(eventName); setIssueMode('single'); setIssueSummonerName(""); setIssueEmail(""); setSingleGeneratedLink(null); setSingleStatusMsg(null); setBatchInput(""); setBatchResults([]); setBatchProgress({ current: 0, total: 0 }); setIssueModalOpen(true);
   };
 
-  // ⭐️ 核心防護：修復單筆派發的連結取得邏輯
+  // ⭐️ 核心強化：修復單筆派發的舊連結取得邏輯 (防呆無大小寫差異)
   const handleSingleIssue = async (e: React.FormEvent) => {
     e.preventDefault(); 
     if (!issueEmail.includes('@') || !issueSummonerName.trim()) return alert('請確認信箱格式正確且已填寫暱稱！'); 
@@ -211,24 +211,28 @@ export default function AdminDashboardPage() {
       if (error) throw error;
       
       let finalToken = magicToken;
-      // 💡 關鍵防呆：如果 RPC 沒有回傳 Token (代表已註冊過)，主動去 players 資料表把舊 Token 撈出來！
+      
+      // 💡 關鍵強化防呆：如果 RPC 沒給 Token (舊玩家)，主動且忽略大小寫地去找出他
       if (!finalToken) {
         const { data: existPlayer } = await supabase
           .from('players')
-          .select('magic_token')
-          .eq('email', issueEmail.trim())
-          .single();
-        if (existPlayer && existPlayer.magic_token) {
-          finalToken = existPlayer.magic_token;
+          .select('*')
+          .ilike('email', issueEmail.trim()) // ilike 忽略大小寫差異
+          .limit(1)
+          .maybeSingle();
+
+        // 相容多種資料庫欄位設計，優先拿 magic_token，沒有就拿 id
+        if (existPlayer) {
+          finalToken = existPlayer.magic_token || existPlayer.id;
         }
       }
 
       if (finalToken) { 
         setSingleGeneratedLink(`${window.location.origin}/claim?token=${finalToken}`); 
-        setSingleStatusMsg({ type: 'success', text: '✅ 票券派發成功！請複製下方專屬連結給玩家。' }); 
+        setSingleStatusMsg({ type: 'success', text: '✅ 票券派發（或補發）成功！請複製下方專屬連結給玩家。' }); 
       } else { 
         setSingleGeneratedLink(null); 
-        setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！(但無法取得舊有連結)' }); 
+        setSingleStatusMsg({ type: 'warning', text: '⚡ 此玩家之前已綁定過，票券已自動匯入他的數位票夾！(系統發生異常無法讀出連結)' }); 
       }
       fetchDashboardData();
     } catch (err: any) { 
@@ -238,7 +242,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // ⭐️ 核心防護：修復批次派發的連結取得邏輯
+  // ⭐️ 核心強化：修復批次派發的舊連結取得邏輯
   const handleBatchIssue = async () => {
     if (!batchInput.trim()) return alert("請貼上匯入資料！");
     const lines = batchInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -262,22 +266,26 @@ export default function AdminDashboardPage() {
         if (error) throw error;
         
         let finalToken = magicToken;
-        // 💡 關鍵防呆：批次匯入若遇老玩家，一樣主動抓舊 Token
+
+        // 💡 關鍵強化防呆：批次若遇老玩家，一樣主動抓出 Token 回傳給名單
         if (!finalToken) {
           const { data: existPlayer } = await supabase
             .from('players')
-            .select('magic_token')
-            .eq('email', p.email)
-            .single();
-          if (existPlayer && existPlayer.magic_token) {
-            finalToken = existPlayer.magic_token;
+            .select('*')
+            .ilike('email', p.email.trim())
+            .limit(1)
+            .maybeSingle();
+            
+          if (existPlayer) {
+            finalToken = existPlayer.magic_token || existPlayer.id;
           }
         }
 
         if (finalToken) {
           resultsReport.push(`${p.email}\t${p.name}\t${window.location.origin}/claim?token=${finalToken}`); 
         } else { 
-          resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動補發/派發成功`); 
+          // 理論上不會跑到這裡，除非資料庫真的找不到這個信箱
+          resultsReport.push(`${p.email}\t${p.name}\t[已綁定] 自動補發成功 (無法讀取連結)`); 
         }
       } catch (err: any) { 
         resultsReport.push(`${p.email}\t${p.name}\t[失敗] ${err.message}`); 
