@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ShieldCheck, Mail, AlertTriangle, Loader2, Ticket } from "lucide-react";
+import { ShieldCheck, Mail, Loader2, Ticket } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 function ClaimGateway() {
@@ -13,7 +13,8 @@ function ClaimGateway() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [expectedEmail, setExpectedEmail] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // 雖然我們不在畫面上顯示錯誤了，但底層邏輯仍需這個狀態來判斷是否顯示「已綁定/重新登入」的按鈕
+  const [hasError, setHasError] = useState(false);
   
   const [isAlreadyLoggedIn, setIsAlreadyLoggedIn] = useState(false);
 
@@ -26,7 +27,7 @@ function ClaimGateway() {
       }
 
       if (!token) {
-        setError("無效的票券連結！請從主辦單位發送的官方信件/簡訊中點擊連結。");
+        setHasError(true);
         setIsLoading(false);
         return;
       }
@@ -39,8 +40,8 @@ function ClaimGateway() {
         .single();
 
       if (error || !data) {
-        // 找不到 token，代表已被銷毀(已綁定)，或是假 Token
-        setError("此魔法連結無效，或者您的票券已完成綁定。");
+        // 找不到 token，代表已被銷毀(已綁定)，或是假 Token，標記為 Error 狀態以切換 UI
+        setHasError(true);
       } else {
         // 遮蔽 Email 保護隱私 (ex: sum********@gmail.com)
         const [name, domain] = data.email.split("@");
@@ -92,17 +93,14 @@ function ClaimGateway() {
             為了保障您的權益，票券採實名綁定。<br/>請使用報名時登記的 Google 帳號進行綁定。
           </p>
 
-          {error ? (
-            <div className="flex flex-col w-full gap-4 items-center">
-              <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-start gap-3 w-full">
-                <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-                <p className="text-rose-400 text-sm text-left">{error}</p>
-              </div>
-              
+          {hasError ? (
+            // ================= ⭐️ 已移除紅色警告！改為自然溫和的「歡迎歸來」引導流程 =================
+            <div className="flex flex-col w-full gap-4 items-center mt-2">
               {isAlreadyLoggedIn ? (
+                // 玩家仍處於登入狀態 -> 提供按鈕直接去票夾
                 <button 
                   onClick={() => router.push('/')}
-                  className="w-full relative group overflow-hidden rounded-xl p-[1px] mt-2"
+                  className="w-full relative group overflow-hidden rounded-xl p-[1px]"
                 >
                   <span className="absolute inset-0 bg-gradient-to-r from-yellow-500 to-amber-600 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
                   <div className="relative bg-slate-900 px-4 py-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 group-hover:bg-slate-800 group-active:scale-[0.98]">
@@ -111,8 +109,9 @@ function ClaimGateway() {
                   </div>
                 </button>
               ) : (
+                // 玩家已登出 (例如用 LINE 重複開啟舊連結) -> 溫和提供 Google 重新登入按鈕
                 <>
-                  <p className="text-slate-400 text-sm mt-2 w-full text-center">如果您已經綁定過，請直接登入查看：</p>
+                  <p className="text-slate-400 text-sm mb-1 w-full text-center">如果您已經綁定過，請直接登入查看：</p>
                   <button onClick={handleGoogleLogin} className="w-full relative group overflow-hidden rounded-xl p-[1px]">
                     <span className="absolute inset-0 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
                     <div className="relative bg-slate-950 px-4 py-4 rounded-xl flex items-center justify-center gap-3 transition-all duration-300 group-hover:bg-slate-900 group-active:scale-[0.98]">
@@ -129,6 +128,7 @@ function ClaimGateway() {
               )}
             </div>
           ) : (
+            // ================= 正常綁定流程 (Token 有效且尚未綁定) =================
             <>
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 w-full mb-8 flex items-center justify-center gap-3">
                 <Mail className="w-5 h-5 text-slate-500" />
@@ -160,7 +160,6 @@ export default function ClaimPage() {
     <div className="min-h-screen pt-12 pb-12 bg-slate-950 flex flex-col items-center">
       <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
       
-      {/* ⭐️ 核心修改：正式改為 Com2uS 平台級別的通用標題 */}
       <header className="text-center mb-8 relative z-10">
         <h2 className="text-xl font-bold bg-gradient-to-r from-yellow-300 to-yellow-500 text-transparent bg-clip-text drop-shadow-md tracking-wider">
           Com2uS 數位票卷系統
