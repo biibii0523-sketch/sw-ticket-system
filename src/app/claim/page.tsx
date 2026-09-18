@@ -111,7 +111,7 @@ function ClaimGateway() {
               ) : (
                 // 玩家已登出 (例如用 LINE 重複開啟舊連結) -> 溫和提供 Google 重新登入按鈕
                 <>
-                  <p className="text-slate-400 text-sm mb-1 w-full text-center">如果您已經綁定過，請直接登入查看：</p>
+                  <p className="text-slate-400 text-sm mb-1 w-full text-center">請登入您的GOOGLE帳號：</p>
                   <button onClick={handleGoogleLogin} className="w-full relative group overflow-hidden rounded-xl p-[1px]">
                     <span className="absolute inset-0 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 opacity-70 group-hover:opacity-100 transition-opacity duration-300" />
                     <div className="relative bg-slate-950 px-4 py-4 rounded-xl flex items-center justify-center gap-3 transition-all duration-300 group-hover:bg-slate-900 group-active:scale-[0.98]">
